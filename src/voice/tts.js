@@ -14,7 +14,8 @@ import { dataDir } from '../core/store.js'
 // edge-tts 的私有 Python 环境，一键安装时自动创建。老安装沿用 C:\Aurabot\pyenv；新安装放在用户目录下
 const LEGACY_PYENV = 'C:\\Aurabot\\pyenv'
 export const PYENV_DIR = process.env.AURABOT_PYENV || (existsSync(LEGACY_PYENV) ? LEGACY_PYENV : join(homedir(), 'Aurabot', 'pyenv'))
-const pyExe = () => join(PYENV_DIR, 'Scripts', 'python.exe')
+const WINDOWS = process.platform === 'win32'
+const pyExe = () => WINDOWS ? join(PYENV_DIR, 'Scripts', 'python.exe') : join(PYENV_DIR, 'bin', 'python')
 
 function run(cmd, args, { timeoutMs = 60000, input, env } = {}) {
   return new Promise((resolve) => {
@@ -58,7 +59,15 @@ function outDir() {
 }
 
 export function edgeInstalled() {
-  return existsSync(pyExe()) && existsSync(join(PYENV_DIR, 'Lib', 'site-packages', 'edge_tts'))
+  if (!existsSync(pyExe())) return false
+  if (WINDOWS) return existsSync(join(PYENV_DIR, 'Lib', 'site-packages', 'edge_tts'))
+  // Linux venvs use lib/pythonX.Y/site-packages (or lib64 on some distros).
+  for (const base of ['lib', 'lib64']) {
+    let names = []
+    try { names = readdirSync(join(PYENV_DIR, base)) } catch (error) { continue }
+    if (names.some((n) => /^python\d+\.\d+$/.test(n) && existsSync(join(PYENV_DIR, base, n, 'site-packages', 'edge_tts')))) return true
+  }
+  return false
 }
 
 /** 面板「安装语音组件」：建虚拟环境并 pip 安装 edge-tts（开源，LGPL）。 */
@@ -66,7 +75,9 @@ export async function installEdge(log) {
   mkdirSync(PYENV_DIR, { recursive: true })
   if (!existsSync(pyExe())) {
     // 电脑上有 Python 就直接用；没有就用 uv 下一个私有的 Python（不用用户自己装）
-    let r = await run('py', ['-3', '-m', 'venv', PYENV_DIR], { timeoutMs: 180000 })
+    let r = WINDOWS
+      ? await run('py', ['-3', '-m', 'venv', PYENV_DIR], { timeoutMs: 180000 })
+      : await run('python3', ['-m', 'venv', PYENV_DIR], { timeoutMs: 180000 })
     if (r.code !== 0) r = await run('python', ['-m', 'venv', PYENV_DIR], { timeoutMs: 180000 })
     if (r.code !== 0) {
       log?.info('电脑上没有可用的 Python，用 uv 准备一个私有的')
@@ -98,6 +109,12 @@ export async function installEdge(log) {
 async function findOrFetchUv(log) {
   if (process.env.AURABOT_UV) return process.env.AURABOT_UV
   if ((await run('uv', ['--version'], { timeoutMs: 15000 })).code === 0) return 'uv'
+  // The bundled uv downloader only provides Windows builds.
+  // On Linux use a system-provided uv or python3-venv instead.
+  if (!WINDOWS) {
+    log?.warn('Linux 未找到 uv：请安装 python3-venv 或 uv 后重试')
+    return ''
+  }
   const local = join(dirname(PYENV_DIR), 'bin', 'uv.exe')
   for (const p of [local, join('C:\\Aurabot', 'rvc', 'bin', 'uv.exe'), join(homedir(), 'Aurabot', 'rvc', 'bin', 'uv.exe')]) if (existsSync(p)) return p
   log?.info('下载 uv …')
@@ -223,6 +240,7 @@ export async function textToSpeech(text, opt = {}, log) {
     }
   }
   if (!file) {
+    if (!WINDOWS) throw new Error('Linux 没有可用的语音引擎：请安装 edge-tts 或配置远程 TTS')
     file = await windowsSynth(clean)
     engine = 'windows'
   }

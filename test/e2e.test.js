@@ -1,7 +1,7 @@
 // 端到端：假 DSH 宿主 + 假 QQ 网关，跑通 Aurabot 整条链路。
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, readdirSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startMockOneBot } from './helpers/mock-onebot.js'
@@ -63,6 +63,18 @@ before(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'aurabot-e2e-'))
   process.env.AURABOT_DATA_DIR = dataDir
   process.env.AURABOT_WORKSPACE = join(dataDir, 'ws')
+  if (process.platform !== 'win32') {
+    // Test voice delivery using an isolated fake edge-tts venv; no network
+    // and no real speech service required.
+    const venv = join(dataDir, 'fake-venv')
+    const bin = join(venv, 'bin')
+    mkdirSync(bin, { recursive: true })
+    mkdirSync(join(venv, 'lib', 'python3.11', 'site-packages', 'edge_tts'), { recursive: true })
+    const py = join(bin, 'python')
+    writeFileSync(py, "#!/usr/bin/env node\nconst fs=require('node:fs');const i=process.argv.indexOf('--write-media');if(i<0)process.exit(2);fs.writeFileSync(process.argv[i+1],Buffer.alloc(1024,0x42));\n")
+    chmodSync(py, 0o755)
+    process.env.AURABOT_PYENV = venv
+  }
   mock = await startMockOneBot({ selfId: BOT })
   mkdirSync(dataDir, { recursive: true })
   writeFileSync(join(dataDir, 'config.json'), JSON.stringify({
@@ -73,7 +85,7 @@ before(async () => {
     ownerQQ: OWNER,
     allow: { private: [OWNER], groups: ['555', '557', '558', '559'] },
     snowluma: { autoStart: false, autoAttach: false, httpUrl: mock.httpUrl, wsUrl: mock.wsUrl, httpToken: mock.token, wsToken: mock.token, dir: join(dataDir, 'no-snowluma') },
-    voice: { engine: 'windows', autoChance: 0 },
+    voice: { engine: process.platform === 'win32' ? 'windows' : 'edge', autoChance: 0 },
     stickers: { autoChance: 0 },
     // 大多数用例要的是「每次都回」，刹车放宽；558/559 专门测一段一回和刹车
     group: { interjectChance: 0, burstMax: 50, overrides: { 557: { interjectChance: 1, minRelevance: 0, minRecentMessages: 0, cooldownSec: 0, quietHours: [0, 0] }, 559: { burstMax: 2 } } },

@@ -214,6 +214,18 @@ const SEPARATOR_LIST = ['download_checks.json', ['https://raw.githubusercontent.
 
 /** 电脑上的盘和剩余空间，给面板「装到哪个盘」用：[{drive, root, freeGB, totalGB}] */
 export function listDrives() {
+  if (process.platform !== 'win32') {
+    const out = []
+    for (const location of ['/', homedir()]) {
+      try {
+        const v = statfsSync(location)
+        const gb = (n) => Math.round(Number(n) * Number(v.bsize) / 1024 ** 3 * 10) / 10
+        if (out.some((d) => d.drive === location)) continue
+        out.push({ drive: location, root: location === '/' ? '/opt/aurabot/rvc' : defaultRoot(), freeGB: gb(v.bavail), totalGB: gb(v.blocks) })
+      } catch (error) {}
+    }
+    return out
+  }
   const out = []
   for (const L of 'CDEFGHIJKLMNOPQRSTUVWXYZ') {
     const d = `${L}:\\`
@@ -231,7 +243,7 @@ export function listDrives() {
 export function checkRoot(path) {
   const p = String(path || '').trim()
   if (!p) return { ok: true, path: '', message: '', warn: '', freeGB: null }
-  if (!isAbsolute(p) || !/^[A-Za-z]:\\/.test(p.replace(/\//g, '\\'))) return { ok: false, path: p, message: '要写完整路径，比如 D:\\Aurabot\\rvc', warn: '', freeGB: null }
+  if (!isAbsolute(p) || (process.platform === 'win32' && !/^[A-Za-z]:\\/.test(p.replace(/\//g, '\\')))) return { ok: false, path: p, message: '要填写当前系统的绝对路径', warn: '', freeGB: null }
   const warn = /[^\x21-\x7e]/.test(p) ? '路径里有中文或空格，个别工具可能出问题，最好换成全英文、不带空格的路径' : ''
   let freeGB = null
   try {
@@ -247,13 +259,13 @@ export function checkRoot(path) {
 export function pathsOf(root) {
   return {
     root,
-    python: join(root, 'env', 'Scripts', 'python.exe'),
-    separatorExe: join(root, 'env', 'Scripts', 'audio-separator.exe'),
+    python: process.platform === 'win32' ? join(root, 'env', 'Scripts', 'python.exe') : join(root, 'env', 'bin', 'python'),
+    separatorExe: process.platform === 'win32' ? join(root, 'env', 'Scripts', 'audio-separator.exe') : join(root, 'env', 'bin', 'audio-separator'),
     applio: join(root, 'Applio'),
     models: join(root, 'models'),
     separatorModels: join(root, 'separator-models'),
     bin: join(root, 'bin'),
-    ffmpeg: join(root, 'bin', 'ffmpeg.exe'),
+    ffmpeg: join(root, 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
     rmvpe: join(root, 'Applio', 'rvc', 'models', 'predictors', 'rmvpe.pt'),
     contentvec: join(root, 'Applio', 'rvc', 'models', 'embedders', 'contentvec', 'pytorch_model.bin'),
   }
