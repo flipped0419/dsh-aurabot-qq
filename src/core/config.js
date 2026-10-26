@@ -14,12 +14,12 @@ export const DEFAULTS = {
   ownerLevel: 'full', // full | social | chat
   allow: { private: [], groups: [] }, // 主人永远能私聊，不用写进白名单
   snowluma: {
-    dir: 'C:\\Aurabot\\snowluma', // 主人自己下载解压到这里（EULA 不允许自动部署）
-    autoStart: true, // 随 DSH 启动它（只启动主人已安装并同意过协议的副本）
+    dir: process.platform === 'win32' ? 'C:\\Aurabot\\snowluma' : '', // Linux 通过手动 OneBot HTTP/WS 连接独立 SnowLuma
+    autoStart: process.platform === 'win32', // Linux 禁用 Windows 专用进程管理
     webuiPort: 5099,
     webuiPassword: '', // 插件自动生成并保存（第一次启动 SnowLuma 时）；用来调 /api/processes 只给机器人号注入
     passwordAuto: false,
-    autoAttach: true, // 自动给机器人号所在的 QQ 进程注入（绝不碰别的号）
+    autoAttach: process.platform === 'win32', // Linux 使用外部 QQ 网关
     httpUrl: '', // 留空 = 从 SnowLuma 配置里自动读
     wsUrl: '',
     httpToken: '',

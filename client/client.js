@@ -601,15 +601,32 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
     function Connect({ st, draft, setDraft, toast, reload, openWizard }) {
       const f = useField(draft, setDraft)
       const sl = st.snowluma
+      const linux = st.platform !== 'win32'
+      const externalConfigured = Boolean(draft.snowluma.httpUrl && draft.snowluma.wsUrl)
       const [procs, setProcs] = useState(null)
       const conn = st.onebot.state === 'connected'
       const loadProcs = async () => { const r = await get('/snowluma/processes'); setProcs(r.list || []); if (!r.ok) toast(r.message) }
       const act = (p) => async () => { const r = await post(p); toast(r.message || (r.ok ? '好了' : '没成功')); reload() }
       const login = st.onebot.login
       return h('div', { className: 'ab-grid' },
-        h(Card, { title: '接上 QQ（SnowLuma）', desc: 'SnowLuma 是让机器人号上线的 QQ 网关。按协议规定它需要你自己下载、解压并同意它的用户协议；控制台密码、启动、接入、断线重连都交给 Aurabot。',
-          right: openWizard ? h(Btn, { small: true, kind: 'ghost', onClick: openWizard }, '重新走一遍设置向导') : null },
-          h('div', { className: 'ab-steps' },
+        h(Card, { title: linux ? 'Linux：接入外部 SnowLuma' : '接上 QQ（SnowLuma）',
+          desc: linux ? 'Linux 通过已有 SnowLuma 的 OneBot HTTP / WebSocket 接入 QQ 小号，不在 Aurabot 内启动或注入 QQ 进程。'
+            : 'SnowLuma 是让机器人号上线的 QQ 网关。按协议规定它需要你自己下载、解压并同意它的用户协议；控制台密码、启动、接入、断线重连都交给 Aurabot。',
+          right: openWizard && !linux ? h(Btn, { small: true, kind: 'ghost', onClick: openWizard }, '重新走一遍设置向导') : null },
+          linux ? h('div', { className: 'ab-steps' },
+            h('div', { className: 'ab-step' }, h('div', null,
+              h('b', null, '1. 独立部署 SnowLuma'),
+              h('div', { className: 'ab-muted ab-small' }, '在支持 Docker 和 SYS_PTRACE 的 Linux 环境中部署 SnowLuma，亲自阅读协议、登录专用 QQ 小号；不要向公网开放其控制台、noVNC 或 OneBot 端口。'),
+              h('div', { style: { marginTop: 6 } }, h(Btn, { small: true, onClick: () => window.open('https://snowluma.github.io/zh/docs/guide/deploy/docker', '_blank') }, 'SnowLuma Docker 文档 ↗')))),
+            h('div', { className: cx('ab-step', externalConfigured && 'done') }, h('div', null,
+              h('b', null, '2. 配置 OneBot 连接'),
+              h('div', { className: 'ab-muted ab-small' }, '在下面「高级」里填写机器人 QQ 号、HTTP / WS 地址及对应 Token，然后保存；若网关与 DSH 不在同一网络，不要填写 127.0.0.1。'),
+              externalConfigured ? h('div', { className: 'ab-small', style: { color: 'var(--ab-ok)', marginTop: 5 } }, '已填写 HTTP 和 WS 地址（仍需实际连接验证）') : null)),
+            h('div', { className: cx('ab-step', conn && 'done') }, h('div', null,
+              h('b', null, '3. 测试 QQ 连接'),
+              h('div', { className: 'ab-muted ab-small' }, '确认 SnowLuma 已完成用户协议确认和 QQ 小号登录，再打开 Aurabot 总开关、使用试运行模式测试。'),
+              h('div', { style: { marginTop: 6 } }, h(Btn, { small: true, onClick: async () => { const r = await get('/onebot/test'); toast(r.message || (r.ok ? '连接成功' : '未连接')) } }, '测试连接'))))
+          ) : h('div', { className: 'ab-steps' },
             h('div', { className: cx('ab-step', sl.installed && 'done') }, h('div', null,
               h('b', null, '下载 SnowLuma'), h('div', { className: 'ab-muted ab-small' }, '打开官方发布页，下载 Windows 完整版（名字类似 SnowLuma-v2.x.x-win-x64.zip，不带 lite）。'),
               h('div', { style: { marginTop: 6 } }, h(Btn, { small: true, onClick: () => window.open(sl.downloadPage, '_blank') }, '打开下载页 ↗')))),
@@ -651,13 +668,13 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
           !conn && st.onebot.problem ? h('div', { className: 'ab-note warn', style: { marginTop: 10 } }, st.onebot.problem) : null,
           h('div', { className: 'ab-flex', style: { marginTop: 10 } }, h(Btn, { small: true, onClick: async () => { const r = await post('/onebot/reconnect'); toast(r.message, r.ok ? 'ok' : 'err'); reload() } }, '重新连接')),
         ),
-        h(Card, { title: '高级', desc: '一般不用动：地址和令牌会自动从 SnowLuma 的配置里读。' },
+        h(Card, { title: '高级', desc: linux ? 'Linux 使用外部 OneBot 接入，保存后需要打开总开关才会建立连接。' : '一般不用动：地址和令牌会自动从 SnowLuma 的配置里读。' },
           h(Row, { label: '机器人 QQ 号' }, f.text('botQQ')),
-          h(Row, { label: '控制台端口' }, f.num('snowluma.webuiPort', { min: 1, max: 65535 })),
-          h(Row, { label: '控制台密码', hint: '默认由插件自动生成，上面「显示密码」能看到。想自己定一个就填在这里，保存后会真的改到 SnowLuma 上（至少 10 位，要有大小写字母和符号，不能有空格）' }, f.text('snowluma.webuiPassword', { type: 'password', placeholder: draft.snowluma.webuiPasswordSet ? (draft.snowluma.passwordAuto ? '自动管理中（不改就留空）' : '已保存（不改就留空）') : '留空 = 自动' })),
-          h(Row, { label: 'SnowLuma 自己的控制台', hint: '一般用不到，想看它的原始界面时用' }, h(Btn, { small: true, disabled: !sl.running, onClick: () => window.open(sl.webui, '_blank') }, '打开 ↗')),
-          h(Row, { label: '随 DSH 自动启动 SnowLuma' }, f.sw('snowluma.autoStart')),
-          h(Row, { label: '自动接入机器人号', hint: '断线后自动重新接入，只接机器人号。' }, f.sw('snowluma.autoAttach')),
+          (!linux ? h(Row, { label: '控制台端口' }, f.num('snowluma.webuiPort', { min: 1, max: 65535 })) : null),
+          (!linux ? h(Row, { label: '控制台密码', hint: '默认由插件自动生成，上面「显示密码」能看到。想自己定一个就填在这里，保存后会真的改到 SnowLuma 上（至少 10 位，要有大小写字母和符号，不能有空格）' }, f.text('snowluma.webuiPassword', { type: 'password', placeholder: draft.snowluma.webuiPasswordSet ? (draft.snowluma.passwordAuto ? '自动管理中（不改就留空）' : '已保存（不改就留空）') : '留空 = 自动' })) : null),
+          (!linux ? h(Row, { label: 'SnowLuma 自己的控制台', hint: '一般用不到，想看它的原始界面时用' }, h(Btn, { small: true, disabled: !sl.running, onClick: () => window.open(sl.webui, '_blank') }, '打开 ↗')) : null),
+          (!linux ? h(Row, { label: '随 DSH 自动启动 SnowLuma' }, f.sw('snowluma.autoStart')) : null),
+          (!linux ? h(Row, { label: '自动接入机器人号', hint: '断线后自动重新接入，只接机器人号。' }, f.sw('snowluma.autoAttach')) : null),
           h(Row, { label: '手动 HTTP 地址', hint: '留空 = 自动' }, f.text('snowluma.httpUrl', { placeholder: 'http://127.0.0.1:3000' })),
           h(Row, { label: '手动 WS 地址', hint: '留空 = 自动' }, f.text('snowluma.wsUrl', { placeholder: 'ws://127.0.0.1:3001' })),
           h(Row, { label: '手动 HTTP 令牌' }, f.text('snowluma.httpToken', { type: 'password', placeholder: draft.snowluma.httpTokenSet ? '已保存' : '留空 = 自动' })),
@@ -1875,7 +1892,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       const status = !cfg.enabled ? { cls: '', text: '休息中（总开关关着）' } : !conn ? { cls: 'err', text: 'QQ 没连上' } : cfg.dryRun ? { cls: 'warn', text: '在线 · 试运行' } : { cls: 'ok', text: '在线' }
       const persona = st.personas.find((p) => p.id === cfg.persona.current)
       const props = { st, draft, setDraft: setD, toast, reload, go, openWizard: () => setWizardOpen(true) }
-      const showWizard = !cfg.setupDone || wizardOpen
+      const showWizard = st.platform === 'win32' && (!cfg.setupDone || wizardOpen)
       // 标签页：内置的按模块在不在跑决定显示；自己写的模块有设置或面板的各占一页
       const mods = st.modules || []
       const running = (id) => { const m = mods.find((x) => x.id === id); return Boolean(m && m.running) }

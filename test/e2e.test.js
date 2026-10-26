@@ -421,6 +421,8 @@ test('面板接口：概览、人格切换', async () => {
   const s = (await fake.call('/state')).json()
   assert.equal(s.ok, true)
   assert.equal(s.onebot.state, 'connected')
+  assert.equal(s.platform, process.platform, '状态接口返回宿主操作系统')
+  assert.equal(s.snowluma.external, true, '模拟外部 OneBot 连接标记')
   assert.equal(s.config.snowluma.httpToken, '', '令牌不回传给面板')
   assert.equal(s.config.snowluma.httpTokenSet, true)
   const p = (await fake.call('/personas')).json()

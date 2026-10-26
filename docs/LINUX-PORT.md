@@ -30,3 +30,16 @@
 - 不把 QQ 登录态、OneBot Token、模型 API Key、QQ/B 站 Cookie、密码写入仓库。
 - 实际部署时避免给群聊 Agent 宿主机文件与 shell 权限；不要公网开放 DSH/SnowLuma 管理面板。
 - 原项目采用 SnowLuma 的非官方 QQ 接入方式，可能违反 QQ 平台协议并触发账号限制。
+
+## 2026-10-26：DSH Web 实机验证与 Linux 连接界面
+
+- 在 QwenPaw 容器独立用户 aurabotlab 下部署 DSH 0.2.1-rc.2 和 pnpm 10.18.3。
+- 通过 link: 方式安装本分支，启动 127.0.0.1:3180。
+- 带会话认证验证 DSH Web 页面 HTTP 200、Aurabot /api/state HTTP 200、ok=true、
+  平台 linux、12 个模块可见；默认总开关关闭和试运行开启。
+- 新增 Linux 外部 SnowLuma 连接模式和 Web 提示，Linux 默认不使用 Windows 本地注入管理器。
+- 完整测试 150/150 通过；Linux Edge TTS 独立虚拟环境真正合成中文 MP3 成功。
+- 该容器没有 Docker daemon 和 SYS_PTRACE，无法完成本机 SnowLuma Docker 验收；
+  参见 deploy/linux/compose.yaml、verify-host.sh、README.md。
+- GitHub fork flipped0419/dsh-aurabot-qq 已可被集成读取，
+  但集成写入 Git Trees 返回 HTTP 403；当前 Git 提交仍保存在服务器本地。

@@ -1,0 +1,36 @@
+# SnowLuma (real QQ account via OneBot v11), separate from DSH.
+# Docker host must permit SYS_PTRACE and seccomp=unconfined.
+# Host ports are loopback only; use an SSH tunnel to access WebUI/noVNC.
+services:
+  snowluma:
+    image: motricseven7/snowluma:v1.14.17
+    container_name: aurabot-snowluma
+    restart: unless-stopped
+    shm_size: "1gb"
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 1048576
+    environment:
+      TZ: Asia/Shanghai
+      SNOWLUMA_WEBUI_HOST: "0.0.0.0"
+      SNOWLUMA_WEBUI_PORT: "5099"
+      SNOWLUMA_HOOK_AUTOLOAD: "0"
+      SNOWLUMA_QQ_FLAGS: "--disable-gpu --disable-software-rasterizer --disable-gpu-compositing"
+    ports:
+      - "127.0.0.1:6081:6081" # noVNC
+      - "127.0.0.1:5099:5099" # SnowLuma WebUI
+      - "127.0.0.1:3000:3000" # OneBot HTTP
+      - "127.0.0.1:3001:3001" # OneBot WS
+    volumes:
+      - aurabot-qq-gateway:/app/data
+      - aurabot-qq-config:/app/.config
+      - aurabot-qq-userdata:/app/.local/share
+volumes:
+  aurabot-qq-gateway:
+  aurabot-qq-config:
+  aurabot-qq-userdata:

@@ -236,7 +236,7 @@ export async function textToSpeech(text, opt = {}, log) {
       file = await edgeSynth(clean, opt.voice || 'zh-CN-XiaoyiNeural', opt.rate, opt.pitch)
       engine = 'edge'
     } catch (error) {
-      log?.warn(error.message, '→ 改用 Windows 语音')
+      log?.warn(error.message, WINDOWS ? '→ 改用 Windows 语音' : '→ Linux 无系统语音兜底，可能退回文字')
     }
   }
   if (!file) {
