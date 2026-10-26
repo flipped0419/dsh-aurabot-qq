@@ -22,10 +22,10 @@ services:
       SNOWLUMA_HOOK_AUTOLOAD: "0"
       SNOWLUMA_QQ_FLAGS: "--disable-gpu --disable-software-rasterizer --disable-gpu-compositing"
     ports:
-      - "127.0.0.1:6081:6081" # noVNC
-      - "127.0.0.1:5099:5099" # SnowLuma WebUI
-      - "127.0.0.1:3000:3000" # OneBot HTTP
-      - "127.0.0.1:3001:3001" # OneBot WS
+      - "127.0.0.1:6081:6081" # noVNC; Tencent existing browser uses 6080
+      - "127.0.0.1:15099:5099" # SnowLuma WebUI on host 15099
+      - "127.0.0.1:13000:3000" # OneBot HTTP; CAP uses 3000
+      - "127.0.0.1:13001:3001" # OneBot WS
     volumes:
       - aurabot-qq-gateway:/app/data
       - aurabot-qq-config:/app/.config

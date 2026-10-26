@@ -51,7 +51,7 @@ https://snowluma.github.io/zh/docs/guide/deploy/docker
 填专用 QQ 小号、主人 QQ 号，以及已存在的 OneBot HTTP / WS 地址和 Token。
 
 注意：如果 DSH 和 SnowLuma 不在同一个网络命名空间，127.0.0.1 不是同一主机；
-应通过可信内网或 SSH 隧道转发 3000/3001，绝不能直接暴露无保护的 OneBot 服务。
+应通过可信内网或 SSH 隧道转发宿主机 13000/13001，绝不能直接暴露无保护的 OneBot 服务。
 第一次上线保持 Aurabot 总开关关闭或试运行开启，验证发言范围后再正式启用。
 
 ## 三、保留功能与待验收项目
@@ -69,3 +69,18 @@ https://snowluma.github.io/zh/docs/guide/deploy/docker
 - DSH Web、SnowLuma WebUI、noVNC 不公开开放，优先使用 SSH 端口转发。
 - DSH 与 SnowLuma 数据和权限隔离，群聊的 DSH preset 不允许直接操作服务器。
 - 不要从当前 QwenPaw 生产容器中启动 Docker daemon 或修改其容器安全策略。
+
+## 腾讯云北京轻量（4C4G）迁移前注意
+
+此配置针对项目中已存在的腾讯云服务器准备，尚未进行实时资源测试，也没有在腾讯云执行部署。
+- 生产 CAP 已使用宿主机 127.0.0.1:3000，禁止覆盖；本 Compose 改用 13000。
+- 现有持久化 Chrome 的 noVNC 使用 127.0.0.1:6080，SnowLuma 使用 6081。
+- 当前腾讯云已有 Certd、CAP/Valkey、Waiting Room 专用 Valkey、持久化 Chrome、
+  OpenResty 与 Beszel；先查看内存、Docker 实际占用、监听端口、磁盘、失败的 systemd 服务，再做部署决定。
+- 国内腾讯云到 Docker Hub/GitHub 的下载可能失败，优先使用服务商镜像加速源，
+  不自动改写 Docker daemon.json。
+- Docker 的 SYS_PTRACE/seccomp=unconfined 降低了隔离强度。避免共享敏感宿主目录，
+  不设置 privileged: true，不向公网发布 noVNC/WebUI/OneBot。
+- 4 GiB RAM（外加现有 4 GiB Swap）不能仅凭规格判断足够；
+  真实 QQ 和持久化 Chrome 都可能产生高峰值，先小规模试运行并保留回滚。
+- DSH Web 建议以独立用户/systemd 启动，优先使用 localhost:3180；未经核验不接入公网入口。

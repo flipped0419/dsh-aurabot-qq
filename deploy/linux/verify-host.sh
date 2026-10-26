@@ -16,7 +16,7 @@ else
   echo 'Docker daemon: UNAVAILABLE'
   err=1
 fi
-for port in 3000 3001 5099 6081; do
+for port in 13000 13001 15099 6081 3180; do
   if command -v ss >/dev/null 2>&1 && ss -H -lnt "( sport = :$port )" 2>/dev/null | grep -q .; then
     printf 'port %s: OCCUPIED\n' "$port"
     err=1
