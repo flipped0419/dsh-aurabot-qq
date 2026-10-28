@@ -856,7 +856,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       }
       return h('div', { className: 'ab-grid' },
         h(Card, { title: '聊天用的模型', desc: '新建的 QQ 会话按这里的设置来；已有会话也可以在 DSH 里点开单独切换。聊天对速度很敏感，可以先点「测速」挑个快的。' },
-          h(Row, { label: '思考强度', hint: '聊天建议「低」，回得快' }, h(Seg, { value: draft.model.reasoningEffort || 'low', onChange: (v) => setDraft(setPath(draft, 'model.reasoningEffort', v)), options: [{ value: 'low', label: '低' }, { value: 'high', label: '高' }, { value: 'max', label: '最高' }] })),
+          h(Row, { label: '思考强度', hint: '自动（不指定）兼容无推理等级的模型；模型明确支持时可选低/高/最高' }, h(Seg, { value: draft.model.reasoningEffort ?? '', onChange: (v) => setDraft(setPath(draft, 'model.reasoningEffort', v)), options: [{ value: '', label: '自动' }, { value: 'low', label: '低' }, { value: 'high', label: '高' }, { value: 'max', label: '最高' }] })),
           h(Row, { label: '模型' },
             h(Select, {
               value: cur, width: 280,

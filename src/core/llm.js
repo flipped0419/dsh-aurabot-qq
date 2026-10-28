@@ -39,7 +39,7 @@ export async function askModel(dsh, o) {
     messages,
     maxTokens: o.maxTokens || 600,
     temperature: o.temperature ?? 0.3,
-    reasoningEffort: 'low',
+    ...(o.cfg?.model?.reasoningEffort ? { reasoningEffort: o.cfg.model.reasoningEffort } : {}),
   })) {
     if (!chunk) continue
     if (chunk.type === 'text-delta') out += chunk.text

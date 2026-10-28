@@ -25,7 +25,7 @@ export const DEFAULTS = {
     httpToken: '',
     wsToken: '',
   },
-  model: { provider: '', model: '', reasoningEffort: 'low' }, // 留空 = 跟随 DSH 默认
+  model: { provider: '', model: '', reasoningEffort: '' }, // 留空 = 不指定思考强度，兼容无推理能力元数据的模型
   merge: { enabled: true, waitSec: 2.5, maxSec: 8, groupWaitSec: 5, groupMaxSec: 15 }, // 连发合并：对方停顿 waitSec 秒再一起回，最多等 maxSec 秒；群里等得久一点，把一段话攒齐
   imageGen: {
     enabled: false,
