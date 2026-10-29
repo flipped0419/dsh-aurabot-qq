@@ -26,7 +26,7 @@ export const DEFAULTS = {
   files: { enabled: true, maxMB: 50, dirs: [] },
   // 危险命令确认（可选保护，默认关）：她在私聊里执行删根目录/格式化/关机/下载后直接执行等
   // 终端命令前，先发 QQ 私聊问主人，回复「确认」才执行；超时或「取消」就拦下。
-  security: { dangerConfirm: false },
+  security: { dangerConfirm: false, qqApproval: false }, // QQ 原生审批默认关闭；仅对主人私聊的单次工具调用开放
   snowluma: {
     dir: process.platform === 'win32' ? 'C:\\Aurabot\\snowluma' : '', // Linux 通过手动 OneBot HTTP/WS 连接独立 SnowLuma
     autoStart: process.platform === 'win32', // Linux 禁用 Windows 专用进程管理
@@ -241,6 +241,7 @@ export function normalize(raw) {
   if (!isObj(c.files)) c.files = {}
   if (!isObj(c.security)) c.security = {}
   c.security.dangerConfirm = bool(c.security.dangerConfirm, false)
+  c.security.qqApproval = bool(c.security.qqApproval, false)
   c.files.enabled = bool(c.files.enabled, true)
   c.files.maxMB = num(c.files.maxMB, 50, 1, 2048)
   c.files.dirs = (Array.isArray(c.files.dirs) ? c.files.dirs : String(c.files.dirs || '').split(/[\n,，;；]+/))

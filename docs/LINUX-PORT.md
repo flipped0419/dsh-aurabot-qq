@@ -59,3 +59,30 @@
 - 不能把本分支的通过视为真实 QQ、B 站、抖音或生产 DSH 的完整验收。
 - 生产升级前：备份生产 /opt/aurabot/source Git 提交、DSH Web Profile 以及私有 Aurabot 数据目录；核对 QQ 登录、消息收发、私聊工具权限、B站和 TTS；确认 1.1.16 代码与配置迁移后再切换。
 - QQ Cookie、OneBot Token、模型 API Key、登录态和 SSH 凭据只留在私有运行配置；不写入 Git 仓库或 Google Drive 背景文档。
+
+
+## 2026-10-29：QQ 原生工具审批桥（仅隔离开发，尚未生产启用）
+
+在 upstream v1.1.16 + Linux 移植升级分支增加 `src/security/qq-approval.js`。开关位于 Aurabot「聊天 → DSH 原生工具审批（实验）」并且**默认关闭**。这是 DSH `approval/request` 的一次性应答器，不是 `tools/pre-execute` 危险命令检测的替代品；保留上游「危险命令确认」开关及独立回复语法。
+
+- **适用范围：** 只在 SnowLuma 已核对机器人 QQ 登录、且 DSH 会话映射到主人 QQ 私聊时工作。群聊/其他私聊/子 Agent/其他 DSH 会话交还原有 DSH Web 审批链。
+- **授权绑定：** 从 DSH 会话的 `session/event → tool/call` 获得完整参数，再按 Agent Session ID、精确 Tool Call ID、Tool Name 三重核对；请求本身缺少完整参数或过期时不通过 QQ 授权。
+- **回复格式：** `批准 8位十六进制编号` 或 `拒绝 8位十六进制编号`；只有主人 QQ 私聊的精确回复有效。编号随机生成、仅单次有效。普通「确认/取消」仍给原有危险命令保护使用。
+- **安全策略：** 默认关闭、120秒超时拒绝、同时最多4个审批；即使 OneBot 发送请求挂起，也不影响超时拒绝、断线/关闭开关/取消/工具结束/会话结束/服务销毁撤销；已过期审批码不能进入 AI 聊天。
+- **敏感数据：** 对参数中常见密码、Token、Cookie、Authorization 等关键词及超长参数采用保守回退，继续交由 DSH 原审批界面；不能把任何凭据写入仓库或测试脚本。
+- **环境要求：** 不向 QQ 机器人额外开放 HTTP 接口，不更改 DSH 审批策略或自动设成全权限。
+- **隔离验证：** 测试文件 `test/qq-approval.test.js` 和 `test/qq-approval-integration.test.js`；后者用假 DSH 宿主 + 本地 OneBot HTTP/WS 完成从请求、消息通知到主人回复的真实传输模拟。没有使用真人 QQ 登录。
+- **仍需腾讯云验收：** 生产 DSH 0.2.1-rc.2 的实际请求事件、QQ 消息收发、Web 同时打开时的瀑布式应答顺序、升级后旧配置兼容、异常断线及重启。正式生产切换前先核对安全模式及回滚备份，**不要只因模拟测试通过就打开开关**。
+
+
+## 腾讯云下一轮升级测试清单（未执行）
+
+1. 只读核验现有 `/opt/aurabot/source` 仍为 `linux-port` / `dcc23a9`、Git 干净；核验 `aurabot-dsh.service`、当前 QQ 与 DSH Web 登录状态。
+2. 备份生产 Aurabot 源码 Git 引用、DSH Web Profile、私人插件数据目录，以及原始 systemd unit / drop-in；真实凭据和 QQ 登录态仅留在服务器权限受控目录，绝不上传 GitHub/Drive。
+3. 拉取 GitHub `upgrade/aurabot-1.1.16` 到新的本地测试工作树，核验源码 tree SHA；不要 `git pull` 覆盖 `linux-port`，不要在 `3180` 和原 SnowLuma 端口直接起第二套服务。
+4. 用独立临时 DSH Profile + 模拟 OneBot 验证 1.1.16 Web 入口、面板、路由和模块加载；如果必须连接真实 QQ，先制定单连接切换和回滚方案。
+5. 优先验证旧配置中缺失 `gateway` 字段时保留外部 OneBot 连接；检查 DSH 网关模型、语音 Edge TTS、B 站和现有扩展，新增可能主动发公开内容的模块需保持关闭。
+6. QQ 原生工具审批开关默认关闭；确认 Web 原审批、`dangerConfirm` 旧危险命令审批均未回归后，再单独开启实验开关，在主人 QQ 私聊测试一条无风险的审批指令。
+7. 真实联调须覆盖同意、拒绝、超时、网关断线、重启、含敏感参数回退和多会话隔离；出现异常立即关闭新开关并回滚。完成生产验收后，先以服务器最终文件为准，再由用户决定同步到云盘源码/长期背景。
+
+尚未实现 `ask_user_question` 的 QQ 回答桥；本版本仅处理存在准确 `tool/call` 的原生审批。
