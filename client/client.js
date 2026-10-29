@@ -32,6 +32,13 @@ window.__ModuleLoader__.load({
     const getPath = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj)
     const pct = (v) => Math.round((Number(v) || 0) * 100)
     const cx = (...a) => a.filter(Boolean).join(' ')
+    // 音调存的是 '+20Hz' 这种字符串，滑条要数字；合法范围 ±80Hz（再往上 edge-tts 服务端会夹）
+    const pitchNum = (s) => {
+      const m = /^([+-]?\d+)Hz$/i.exec(String(s || ''))
+      return m ? Math.max(-80, Math.min(80, Number(m[1]))) : 0
+    }
+    const pitchText = (n) => (n < 0 ? '-' : '+') + Math.abs(n) + 'Hz'
+    const pitchLabel = (n) => (n === 0 ? '正常（+0Hz）' : (n > 0 ? '+' : '') + n + ' Hz')
     const timeAgo = (t) => {
       if (!t) return '—'
       const s = Math.round((Date.now() - t) / 1000)
@@ -65,12 +72,34 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-deep:#9cc4f5;--ab-sea:#6
 .ab-pill{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;background:var(--ab-card-2);border:1px solid var(--ab-line);color:var(--ab-sub)}
 .ab-dot{width:7px;height:7px;border-radius:50%;background:var(--ab-dim)}
 .ab-dot.ok{background:var(--ab-ok)}.ab-dot.warn{background:var(--ab-warn)}.ab-dot.err{background:var(--ab-err)}
-.ab-tabs{display:flex;gap:2px;margin:18px 0 16px;padding:4px 4px 2px;border-radius:12px;background:var(--ab-card-2);border:1px solid var(--ab-line);overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--ab-line) transparent;position:sticky;top:0;z-index:5}
-.ab-tabs::-webkit-scrollbar{height:6px}.ab-tabs::-webkit-scrollbar-thumb{background:var(--ab-line);border-radius:3px}.ab-tabs:hover::-webkit-scrollbar-thumb{background:var(--ab-dim)}
-.ab-tab{flex:none;border:0;background:transparent;color:var(--ab-sub);padding:6px 12px;border-radius:8px;font-size:13px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
-.ab-tab:hover{background:var(--ab-hover);color:var(--ab-text)}
-.ab-tab.on{background:var(--ab-card);color:var(--ab-deep);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px var(--ab-line)}
+.ab-nav{position:sticky;top:0;z-index:5;margin:var(--dsh-frame-top-clearance,24px) 0 16px;border:1px solid var(--ab-line);border-radius:14px;background:var(--ab-card);background:color-mix(in srgb,var(--ab-card) 88%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.ab-nav:before{content:"";position:absolute;left:-28px;right:-28px;bottom:calc(100% + 1px);height:var(--dsh-frame-top-clearance,24px);background:var(--ab-bg);pointer-events:none}
+.ab-nav-top{display:flex;align-items:center;gap:6px;padding:6px}
+.ab-nav-groups{display:flex;gap:2px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}
+.ab-nav-groups::-webkit-scrollbar,.ab-nav-sub::-webkit-scrollbar{display:none}
+.ab-grp{flex:none;position:relative;display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--ab-sub);font:inherit;font-size:13px;cursor:pointer;transition:background .15s,color .15s}
+.ab-grp svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.ab-grp:hover{background:var(--ab-hover);color:var(--ab-text)}
+.ab-grp.on{background:var(--ab-foam-2);color:var(--ab-deep);font-weight:600}
+.ab-grp .dirty{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--ab-warn)}
+.ab-find-btn{flex:none;display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 8px 0 10px;border:1px solid var(--ab-line);border-radius:9px;background:var(--ab-card-2);color:var(--ab-dim);font:inherit;font-size:12px;cursor:pointer;transition:color .15s,border-color .15s}
+.ab-find-btn:hover{color:var(--ab-text);border-color:var(--ab-line-2)}
+.ab-find-btn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.ab-nav-sub{display:flex;gap:2px;padding:0 8px;border-top:1px solid var(--ab-line);overflow-x:auto;scrollbar-width:none}
+.ab-tab{flex:none;position:relative;border:0;background:transparent;color:var(--ab-sub);padding:9px 12px 10px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;transition:color .15s}
+.ab-tab:hover{color:var(--ab-text)}
+.ab-tab:after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:2px;border-radius:2px;background:transparent;transition:background .15s}
+.ab-tab.on{color:var(--ab-deep);font-weight:600}
+.ab-tab.on:after{background:var(--ab-sea)}
 .ab-tab .ab-dot{width:6px;height:6px}
+.ab-finder{position:absolute;right:6px;top:calc(100% + 6px);width:340px;max-width:calc(100% - 12px);padding:8px;border:1px solid var(--ab-line-2);border-radius:12px;background:var(--ab-card);box-shadow:0 14px 36px rgba(0,0,0,.16);z-index:20}
+.ab-finder .ab-input{width:100%}
+.ab-finder-list{margin-top:6px;max-height:300px;overflow:auto;display:flex;flex-direction:column;gap:1px}
+.ab-finder-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;color:var(--ab-text);cursor:pointer}
+.ab-finder-item small{margin-left:auto;color:var(--ab-dim);font-size:11.5px}
+.ab-finder-item.on,.ab-finder-item:hover{background:var(--ab-foam)}
+.ab-finder-empty{padding:12px 10px;color:var(--ab-dim);font-size:12px}
+@media (max-width:640px){.ab-grp{padding:0 10px;gap:5px}.ab-find-btn .t,.ab-find-btn .ab-kbd{display:none}.ab-finder{left:6px;right:6px;width:auto;max-width:none}}
 .ab-grid{display:grid;gap:12px}
 .ab-g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
 .ab-g4{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
@@ -107,6 +136,8 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-deep:#9cc4f5;--ab-sea:#6
 .ab-seg button{border:0;background:transparent;padding:6px 14px;font:inherit;color:var(--ab-sub);cursor:pointer;border-left:1px solid var(--ab-line)}
 .ab-seg button:first-child{border-left:0}
 .ab-seg button.on{background:var(--ab-foam-2);color:var(--ab-deep);font-weight:600}
+.ab-seg.off{opacity:.45}
+.ab-seg.off button{cursor:not-allowed}
 .ab-note{padding:10px 12px;border-radius:10px;background:var(--ab-foam);color:var(--ab-text);font-size:12.5px;border:1px solid var(--ab-foam-2)}
 .ab-note.warn{background:rgba(191,135,0,.08);border-color:rgba(191,135,0,.25)}
 .ab-note.err{background:rgba(207,34,46,.07);border-color:rgba(207,34,46,.25)}
@@ -118,11 +149,19 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-deep:#9cc4f5;--ab-sea:#6
 .ab-kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:12.5px}
 .ab-kv span:nth-child(odd){color:var(--ab-sub)}
 .ab-stickers{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px}
+.ab-shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px}
+.ab-shot{border:1px solid var(--ab-line);border-radius:12px;padding:6px;background:var(--ab-card);display:flex;flex-direction:column;gap:6px;position:relative}
+.ab-shot img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;background:var(--ab-card-2);display:block}
+.ab-shot .cap{font-size:11px;color:var(--ab-dim);line-height:1.35;max-height:2.7em;overflow:hidden}
+.ab-shot .x{position:absolute;top:10px;right:10px;opacity:0;transition:opacity .15s}
+.ab-shot:hover .x{opacity:1}
 .ab-sticker{border:1px solid var(--ab-line);border-radius:12px;padding:8px;background:var(--ab-card);display:flex;flex-direction:column;gap:6px;position:relative}
 .ab-sticker img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;background:var(--ab-card-2)}
-.ab-sticker .nm{font-size:12px;border:0;background:transparent;color:var(--ab-text);text-align:center;width:100%;outline:none;padding:2px;border-radius:6px}
-.ab-sticker .nm:focus{background:var(--ab-card-2)}
-.ab-sticker .tg{font-size:11px;color:var(--ab-dim);text-align:center;min-height:16px}
+.ab-sticker .nm,.ab-sticker .tg{border:1px dashed transparent;background:transparent;text-align:center;width:100%;outline:none;padding:2px 4px;border-radius:6px;box-sizing:border-box}
+.ab-sticker .nm{font-size:12px;color:var(--ab-text)}
+.ab-sticker .tg{font-size:11px;color:var(--ab-dim);min-height:16px}
+.ab-sticker:hover .nm,.ab-sticker:hover .tg{border-color:var(--ab-line)}
+.ab-sticker .nm:focus,.ab-sticker .tg:focus{background:var(--ab-card-2);border-style:solid;border-color:var(--ab-line)}
 .ab-sticker .x{position:absolute;top:4px;right:4px;opacity:0;transition:opacity .15s}
 .ab-sticker:hover .x{opacity:1}
 .ab-list{display:flex;flex-direction:column}
@@ -146,6 +185,36 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-deep:#9cc4f5;--ab-sea:#6
 .ab-pitem .nm{font-weight:600;display:flex;align-items:center;gap:6px}
 .ab-pitem .tg{color:var(--ab-dim);font-size:11.5px;margin-top:2px}
 .ab-badge{font-size:10.5px;padding:0 6px;border-radius:999px;background:var(--ab-sea);color:#fff;font-weight:500}
+.ab-psecs{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.ab-psec{border:1px solid var(--ab-line);border-radius:12px;background:var(--ab-card);transition:border-color .12s,box-shadow .12s}
+.ab-psec:focus-within{border-color:var(--ab-sky);box-shadow:0 0 0 3px var(--ab-foam)}
+.ab-psec.lead{background:linear-gradient(120deg,var(--ab-foam),transparent 60%),var(--ab-card)}
+.ab-psec-head{display:flex;align-items:center;gap:4px;padding:8px 8px 0 14px}
+.ab-psec-title{flex:1;min-width:0;border:0;background:transparent;font:inherit;font-weight:620;font-size:13.5px;color:var(--ab-text);padding:4px 0;outline:none}
+.ab-psec-title::placeholder{color:var(--ab-dim);font-weight:400}
+.ab-psec-fixed{flex:1;min-width:0;font-weight:620;font-size:13.5px;padding:4px 0}
+.ab-psec-fixed small{font-weight:400;color:var(--ab-dim);margin-left:8px;font-size:11.5px}
+.ab-psec-n{font-size:11px;color:var(--ab-dim);font-variant-numeric:tabular-nums;margin-right:4px}
+.ab-psec-act{display:flex;align-items:center;gap:2px;opacity:.5;transition:opacity .12s}
+.ab-psec:hover .ab-psec-act,.ab-psec:focus-within .ab-psec-act{opacity:1}
+.ab-ibtn{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:7px;background:transparent;color:var(--ab-sub);cursor:pointer;padding:0}
+.ab-ibtn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ab-ibtn:hover{background:var(--ab-hover);color:var(--ab-text)}
+.ab-ibtn.danger:hover{color:var(--ab-err)}
+.ab-ibtn:disabled{opacity:.3;cursor:default;background:transparent}
+.ab-aibtn{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;margin-left:2px;border:0;border-radius:7px;background:var(--ab-foam);color:var(--ab-deep);font:inherit;font-size:12px;cursor:pointer;transition:background .12s}
+.ab-aibtn:hover,.ab-aibtn.on{background:var(--ab-foam-2)}
+.ab-aibtn svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ab-psec textarea{display:block;width:100%;box-sizing:border-box;border:0;background:transparent;resize:vertical;outline:none;padding:6px 14px 12px;font:inherit;font-size:13px;line-height:1.75;color:var(--ab-text)}
+.ab-psec textarea::placeholder{color:var(--ab-dim)}
+.ab-psec.cmp{border-color:var(--ab-sea);box-shadow:0 0 0 3px var(--ab-foam)}
+.ab-psec.cmp textarea{cursor:default}
+.ab-compare{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 12px 12px;padding:8px 8px 8px 12px;border-radius:10px;background:var(--ab-foam)}
+.ab-compare-tag{font-size:11.5px;font-weight:600;color:var(--ab-deep);padding:1px 8px;border-radius:999px;background:var(--ab-card);border:1px solid var(--ab-foam-2)}
+.ab-psec-add{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:12px}
+.ab-chip{border:1px dashed var(--ab-line-2);background:transparent;color:var(--ab-sub);border-radius:999px;padding:3px 12px;font:inherit;font-size:12px;cursor:pointer;transition:border-color .12s,color .12s,background .12s}
+.ab-chip:hover{border-color:var(--ab-sea);color:var(--ab-deep);background:var(--ab-foam)}
+.ab-chip.solid{border-style:solid}
 .ab-mood{height:10px;border-radius:999px;background:var(--ab-card-2);overflow:hidden;border:1px solid var(--ab-line)}
 .ab-mood > i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--ab-sky),var(--ab-sea))}
 .ab-savebar{position:sticky;bottom:12px;margin-top:16px;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:12px;background:var(--ab-card);border:1px solid var(--ab-sea);box-shadow:0 6px 24px rgba(0,0,0,.12);z-index:6}
@@ -232,7 +301,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
 .ab-input:hover,.ab-textarea:hover{border-color:var(--ab-sky)}
 .ab-textarea{font-family:inherit;font-size:13px}
 .ab-btn{border-radius:10px;transition:background .12s,border-color .12s,box-shadow .12s,filter .12s}
-.ab-btn:focus-visible,.ab-tab:focus-visible,.ab-switch:focus-visible,.ab-choice:focus-visible{outline:none;box-shadow:0 0 0 3px var(--ab-foam-2)}
+.ab-btn:focus-visible,.ab-tab:focus-visible,.ab-switch:focus-visible,.ab-choice:focus-visible,.ab-grp:focus-visible,.ab-find-btn:focus-visible,.ab-ibtn:focus-visible,.ab-aibtn:focus-visible,.ab-chip:focus-visible{outline:none;box-shadow:0 0 0 3px var(--ab-foam-2)}
 .ab-btn.primary{box-shadow:0 2px 8px color-mix(in srgb,var(--ab-sea) 30%,transparent)}
 .ab-btn.danger:hover{background:rgba(207,34,46,.07);border-color:rgba(207,34,46,.3)}
 .ab-switch{width:40px;height:23px}.ab-switch:after{width:17px;height:17px}.ab-switch.on:after{left:20px}
@@ -392,8 +461,8 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
         h('input', { type: 'range', min, max, step: step || 1, value: value ?? min, onChange: (e) => onChange(Number(e.target.value)) }),
         h('span', { className: 'val' }, fmt ? fmt(value) : value))
     }
-    function Seg({ value, options, onChange }) {
-      return h('div', { className: 'ab-seg' }, options.map((o) => h('button', { key: o.value, type: 'button', className: value === o.value ? 'on' : '', onClick: () => onChange(o.value) }, o.label)))
+    function Seg({ value, options, onChange, disabled }) {
+      return h('div', { className: 'ab-seg' + (disabled ? ' off' : '') }, options.map((o) => h('button', { key: o.value, type: 'button', className: value === o.value ? 'on' : '', disabled: !!disabled, onClick: () => { if (!disabled) onChange(o.value) } }, o.label)))
     }
     function Empty({ icon, text }) {
       return h('div', { className: 'ab-empty' }, h('div', { className: 'big' }, icon || '🐋'), text)
@@ -440,13 +509,97 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       { id: 'mood', label: '心情与记忆', flag: 'mood.enabled' },
       { id: 'song', label: '翻唱', flag: 'song.enabled' },
       { id: 'bili', label: 'B站', flag: 'bili.enabled' },
+      { id: 'douyin', label: '抖音', flag: 'douyin.enabled' },
       { id: 'local', label: '本地接口' },
       { id: 'modules', label: '扩展' },
       { id: 'logs', label: '日志' },
     ]
     // 内置标签页属于哪个模块：模块都没在跑就不显示这一页
-    const TAB_MODS = { voice: ['voice'], stickers: ['stickers'], imagegen: ['imagegen'], diary: ['diary', 'qzone-social'], speakup: ['speakup'], mood: ['mood', 'memory'], song: ['song'], bili: ['bili'] }
+    const TAB_MODS = { voice: ['voice'], stickers: ['stickers'], imagegen: ['imagegen'], diary: ['diary', 'qzone-social'], speakup: ['speakup'], mood: ['mood', 'memory'], song: ['song'], bili: ['bili'], douyin: ['douyin'] }
     const modOn = (st, id) => (st.modules || []).some((m) => m.id === id && m.running)
+
+    // 两层导航：上面一排是分组，下面一排是这组里的页面；每组记住上次看的那页，Alt+K 查找功能
+    // （分组导航的思路来自社区贡献的「导航布局」扩展，这里改成面板自己实现）
+    const NAV_GROUPS = [
+      { id: 'home', label: '概览', icon: 'M3 10.5 12 3l9 7.5M5.5 9v11.5h13V9M10 20.5v-6h4v6', tabs: ['overview'] },
+      { id: 'self', label: '人设', icon: 'M12 12.5a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5zM4.5 20.5c.9-3.6 3.9-5.5 7.5-5.5s6.6 1.9 7.5 5.5', tabs: ['persona', 'group', 'speakup', 'mood'] },
+      { id: 'express', label: '表达', icon: 'M20.5 11.5a8 8 0 0 1-11.7 7.1L4 20l1.4-4.4A8 8 0 1 1 20.5 11.5zM9 13.2s1.1 1.5 3 1.5 3-1.5 3-1.5M9.5 9.6h.01M14.5 9.6h.01', tabs: ['voice', 'stickers', 'imagegen', 'song'] },
+      { id: 'platform', label: '平台', icon: 'M3.5 6.5h17v11h-17zM10.5 9.8v4.4l3.8-2.2z', tabs: ['diary', 'bili', 'douyin'] },
+      { id: 'system', label: '系统', icon: 'M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1M15 5v4M9 10v4M17 15v4', tabs: ['connect', 'model', 'access', 'local', 'modules', 'logs'] },
+    ]
+    // 自己写的模块：名字像逛平台的放「平台」，其余放「系统」（排在「日志」前面）
+    const PLATFORM_EXT = /逛|刷|B站|抖音|小红书|闲鱼|淘宝|微博|知乎|贴吧|快手|触站/
+    const navGroupOf = (t) => NAV_GROUPS.find((g) => g.tabs.includes(t.id)) || (t.ext && PLATFORM_EXT.test(t.label) ? NAV_GROUPS[3] : NAV_GROUPS[4])
+    const navOrder = (g, t) => { const i = g.tabs.indexOf(t.id); return i >= 0 ? i : g.tabs.length - (g.tabs.includes('logs') ? 1.5 : 0) }
+    const NAV_ALIAS = {
+      overview: '首页 状态', connect: 'qq 网关 snowluma onebot 登录 工作区', persona: '人设 性格 设定 头像', access: '主人 白名单 权限 群管 改资料',
+      group: '群聊 插话 合并', model: 'ai 大模型 视觉 思考强度', voice: '语音 tts 说话 音色 edge', stickers: '表情 小黄脸 gif 商城表情',
+      imagegen: '画图 图片', diary: '空间 说说 日记', speakup: '搭话 主动', mood: '心情 记忆', song: '唱歌 翻唱 rvc 点歌',
+      bili: 'b站 bilibili 视频', douyin: '抖音 短视频 私信', local: '本地 接口 sd sovits', modules: '扩展 模块 插件', logs: '日志 报错',
+    }
+    const navIcon = (d) => h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d }))
+
+    function NavBar({ tabs, cur, go, mark, dirtyOf, subRef }) {
+      const [last, setLast] = useState(() => { try { return JSON.parse(localStorage.getItem('aurabot.navlast') || '{}') || {} } catch (e) { return {} } })
+      const [find, setFind] = useState(null) // null = 没开；字符串 = 正在搜的字
+      const [hi, setHi] = useState(0)
+      const box = useRef(null)
+      const groups = NAV_GROUPS
+        .map((g) => ({ ...g, list: tabs.filter((t) => navGroupOf(t).id === g.id).sort((a, b) => navOrder(g, a) - navOrder(g, b)) }))
+        .filter((g) => g.list.length)
+      const curGroup = groups.find((g) => g.list.some((t) => t.id === cur.id)) || groups[0]
+      // 记住每组最后看的那页：点分组时回到那页
+      useEffect(() => {
+        if (!curGroup || last[curGroup.id] === cur.id) return
+        const next = { ...last, [curGroup.id]: cur.id }
+        setLast(next)
+        try { localStorage.setItem('aurabot.navlast', JSON.stringify(next)) } catch (e) {}
+      }, [cur.id])
+      const openGroup = (g) => go((g.list.find((t) => t.id === last[g.id]) || g.list[0]).id)
+      const toggleFind = () => { setFind((f) => (f === null ? '' : null)); setHi(0) }
+      useEffect(() => {
+        const onKey = (e) => {
+          if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'k') { e.preventDefault(); toggleFind() }
+          else if (e.key === 'Escape') setFind(null)
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+      }, [])
+      // 点到查找框外面就收起
+      useEffect(() => {
+        if (find === null) return
+        const onDown = (e) => { if (box.current && !box.current.contains(e.target)) setFind(null) }
+        document.addEventListener('mousedown', onDown)
+        return () => document.removeEventListener('mousedown', onDown)
+      }, [find === null])
+      const q = (find || '').trim().toLowerCase()
+      const hits = find === null ? [] : groups.flatMap((g) => g.list.map((t) => ({ t, g })))
+        .filter(({ t, g }) => !q || [t.label, g.label, NAV_ALIAS[t.id] || '', t.id].join(' ').toLowerCase().includes(q))
+      const pick = (t) => { setFind(null); go(t.id) }
+      const tabBtn = (t) => h('button', { key: t.id, type: 'button', role: 'tab', 'aria-selected': cur.id === t.id, className: cx('ab-tab', cur.id === t.id && 'on'), onClick: () => go(t.id) }, t.label, mark(t))
+      return h('nav', { className: 'ab-nav', ref: box, 'aria-label': 'Aurabot 功能' },
+        h('div', { className: 'ab-nav-top' },
+          h('div', { className: 'ab-nav-groups', role: 'tablist', 'aria-label': '功能分组' }, groups.map((g) => h('button', {
+            key: g.id, type: 'button', role: 'tab', 'aria-selected': g.id === curGroup.id, className: cx('ab-grp', g.id === curGroup.id && 'on'),
+            title: g.list.map((t) => t.label).join(' · '), onClick: () => openGroup(g),
+          }, navIcon(g.icon), h('span', null, g.label), g.list.some((t) => dirtyOf(t.id)) ? h('i', { className: 'dirty', title: '这组里有没保存的改动' }) : null))),
+          h('button', { type: 'button', className: 'ab-find-btn', 'aria-expanded': find !== null, title: '查找功能（Alt+K）', onClick: toggleFind },
+            navIcon('M11 4.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM20 20l-4.2-4.2'), h('span', { className: 't' }, '查找'), h('span', { className: 'ab-kbd' }, 'Alt K'))),
+        curGroup && curGroup.list.length > 1 ? h('div', { className: 'ab-nav-sub', role: 'tablist', 'aria-label': curGroup.label, ref: subRef }, curGroup.list.map(tabBtn)) : null,
+        find !== null ? h('div', { className: 'ab-finder' },
+          h('input', {
+            className: 'ab-input', autoFocus: true, placeholder: '找功能：语音、抖音、白名单…', value: find,
+            onChange: (e) => { setFind(e.target.value); setHi(0) },
+            onKeyDown: (e) => {
+              if (e.key === 'ArrowDown') { e.preventDefault(); setHi(Math.min(hi + 1, hits.length - 1)) }
+              else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(Math.max(hi - 1, 0)) }
+              else if (e.key === 'Enter' && hits[hi]) { e.preventDefault(); pick(hits[hi].t) }
+            },
+          }),
+          h('div', { className: 'ab-finder-list', role: 'listbox' }, hits.length
+            ? hits.map(({ t, g }, i) => h('button', { key: t.id, type: 'button', role: 'option', 'aria-selected': i === hi, className: cx('ab-finder-item', i === hi && 'on'), onMouseEnter: () => setHi(i), onClick: () => pick(t) }, t.label, h('small', null, g.label)))
+            : h('div', { className: 'ab-finder-empty' }, '没找到，换个说法试试：语音、抖音、白名单'))) : null)
+    }
     function ModOff({ name }) {
       return h(Card, { title: name }, h('div', { className: 'ab-muted ab-small' }, '「' + name + '」模块关着，这部分用不了。要用的话去「扩展」页把它打开。'))
     }
@@ -598,35 +751,49 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
           h('span', { className: 'ab-muted ab-small' }, 'SnowLuma 是独立的第三方项目，仅限个人非商业使用；使用非官方 QQ 工具有账号风险，请用小号。')))
     }
 
+    /** 用什么接 QQ：插件帮你管 SnowLuma，或接你已有的 OneBot v11 机器人。 */
+    function GatewayChoice({ draft, setDraft }) {
+      return h(Choices, { value: draft.gateway || 'snowluma', onChange: (v) => setDraft(setPath(draft, 'gateway', v)), options: [
+        { value: 'snowluma', label: '用 SnowLuma（Windows，推荐）', desc: '插件帮你启动、接入机器人号、断线重连' },
+        { value: 'onebot', label: '接我已有的 OneBot 机器人', desc: 'NapCat、LLOneBot、Lagrange、Docker 里的 SnowLuma 等任何 OneBot v11 实现；Linux / Docker 部署选这个' },
+      ] })
+    }
+
+    /** 已有 OneBot 机器人的地址和令牌。 */
+    function OneBotFields({ draft, f }) {
+      return h(Fragment, null,
+        h(Row, { label: 'WebSocket 地址', hint: '正向 WebSocket（OneBot v11），收消息靠它，必填。DSH 在 Docker 里的话，要填 DSH 容器能访问到的地址' }, f.text('snowluma.wsUrl', { size: 'wide', placeholder: 'ws://127.0.0.1:3001' })),
+        h(Row, { label: 'WebSocket 令牌', hint: '对方设了 access_token 就填，没设留空' }, f.text('snowluma.wsToken', { type: 'password', placeholder: draft.snowluma.wsTokenSet ? '已保存' : '没有就留空' })),
+        h(Row, { label: 'HTTP 地址', hint: '可选。填了就用 HTTP 调接口，不填就都走 WebSocket' }, f.text('snowluma.httpUrl', { size: 'wide', placeholder: 'http://127.0.0.1:3000' })),
+        h(Row, { label: 'HTTP 令牌' }, f.text('snowluma.httpToken', { type: 'password', placeholder: draft.snowluma.httpTokenSet ? '已保存' : '没有就留空' })))
+    }
+
     function Connect({ st, draft, setDraft, toast, reload, openWizard }) {
       const f = useField(draft, setDraft)
       const sl = st.snowluma
       const linux = st.platform !== 'win32'
-      const externalConfigured = Boolean(draft.snowluma.httpUrl && draft.snowluma.wsUrl)
       const [procs, setProcs] = useState(null)
       const conn = st.onebot.state === 'connected'
       const loadProcs = async () => { const r = await get('/snowluma/processes'); setProcs(r.list || []); if (!r.ok) toast(r.message) }
       const act = (p) => async () => { const r = await post(p); toast(r.message || (r.ok ? '好了' : '没成功')); reload() }
       const login = st.onebot.login
+      const external = draft.gateway === 'onebot'
+      const testBtns = h('div', { className: 'ab-flex', style: { marginTop: 8 } },
+        h(Btn, { small: true, onClick: async () => { const r = await get('/onebot/test'); toast(r.message) } }, '测试连接'),
+        h(Btn, { small: true, onClick: async () => { const r = await post('/onebot/reconnect'); toast(r.message, r.ok ? 'ok' : 'err'); reload() } }, '重新连接'))
       return h('div', { className: 'ab-grid' },
-        h(Card, { title: linux ? 'Linux：接入外部 SnowLuma' : '接上 QQ（SnowLuma）',
-          desc: linux ? 'Linux 通过已有 SnowLuma 的 OneBot HTTP / WebSocket 接入 QQ 小号，不在 Aurabot 内启动或注入 QQ 进程。'
-            : 'SnowLuma 是让机器人号上线的 QQ 网关。按协议规定它需要你自己下载、解压并同意它的用户协议；控制台密码、启动、接入、断线重连都交给 Aurabot。',
-          right: openWizard && !linux ? h(Btn, { small: true, kind: 'ghost', onClick: openWizard }, '重新走一遍设置向导') : null },
-          linux ? h('div', { className: 'ab-steps' },
-            h('div', { className: 'ab-step' }, h('div', null,
-              h('b', null, '1. 独立部署 SnowLuma'),
-              h('div', { className: 'ab-muted ab-small' }, '在支持 Docker 和 SYS_PTRACE 的 Linux 环境中部署 SnowLuma，亲自阅读协议、登录专用 QQ 小号；不要向公网开放其控制台、noVNC 或 OneBot 端口。'),
-              h('div', { style: { marginTop: 6 } }, h(Btn, { small: true, onClick: () => window.open('https://snowluma.github.io/zh/docs/guide/deploy/docker', '_blank') }, 'SnowLuma Docker 文档 ↗')))),
-            h('div', { className: cx('ab-step', externalConfigured && 'done') }, h('div', null,
-              h('b', null, '2. 配置 OneBot 连接'),
-              h('div', { className: 'ab-muted ab-small' }, '在下面「高级」里填写机器人 QQ 号、HTTP / WS 地址及对应 Token，然后保存；若网关与 DSH 不在同一网络，不要填写 127.0.0.1。'),
-              externalConfigured ? h('div', { className: 'ab-small', style: { color: 'var(--ab-ok)', marginTop: 5 } }, '已填写 HTTP 和 WS 地址（仍需实际连接验证）') : null)),
-            h('div', { className: cx('ab-step', conn && 'done') }, h('div', null,
-              h('b', null, '3. 测试 QQ 连接'),
-              h('div', { className: 'ab-muted ab-small' }, '确认 SnowLuma 已完成用户协议确认和 QQ 小号登录，再打开 Aurabot 总开关、使用试运行模式测试。'),
-              h('div', { style: { marginTop: 6 } }, h(Btn, { small: true, onClick: async () => { const r = await get('/onebot/test'); toast(r.message || (r.ok ? '连接成功' : '未连接')) } }, '测试连接'))))
-          ) : h('div', { className: 'ab-steps' },
+        h(Card, { title: '用什么接 QQ', right: openWizard ? h(Btn, { small: true, kind: 'ghost', onClick: openWizard }, '重新走一遍设置向导') : null }, h(GatewayChoice, { draft, setDraft })),
+        linux && external ? h(Card, {
+          title: 'Linux：接入外部 SnowLuma',
+          desc: '通过已部署的 SnowLuma / OneBot v11 网关连接机器人 QQ 号。请在独立环境完成协议确认与登录，避免把控制台、noVNC 或 OneBot 端口暴露公网。',
+        }, h('div', { className: 'ab-muted ab-small' }, '网关不在 DSH 所在网络命名空间时，127.0.0.1 指向的是 DSH 本机；请填写能实际连通的受保护地址。')) : null,
+        external ? h(Card, { title: '接上 QQ（已有的 OneBot 机器人）', desc: '让你的 OneBot 服务登录机器人号 ' + (draft.botQQ || '') + '，把它的正向 WebSocket 地址填在这里，保存后插件就会去连。插件只连接，不会启动或注入任何东西；连上后会先核对登录的是不是机器人号，不是就断开。' },
+          h(OneBotFields, { draft, f }),
+          h(Row, { label: '机器人 QQ 号' }, f.text('botQQ')),
+          testBtns) :
+        h(Card, { title: '接上 QQ（SnowLuma）', desc: 'SnowLuma 是让机器人号上线的 QQ 网关。按协议规定它需要你自己下载、解压并同意它的用户协议；控制台密码、启动、接入、断线重连都交给 Aurabot。',
+          },
+          h('div', { className: 'ab-steps' },
             h('div', { className: cx('ab-step', sl.installed && 'done') }, h('div', null,
               h('b', null, '下载 SnowLuma'), h('div', { className: 'ab-muted ab-small' }, '打开官方发布页，下载 Windows 完整版（名字类似 SnowLuma-v2.x.x-win-x64.zip，不带 lite）。'),
               h('div', { style: { marginTop: 6 } }, h(Btn, { small: true, onClick: () => window.open(sl.downloadPage, '_blank') }, '打开下载页 ↗')))),
@@ -658,6 +825,9 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
                 h('td', null, p.injected ? (p.connected ? '已接入' : '已注入，连接中') : '未接入'),
                 h('td', null, p.isBot ? h('span', { className: 'ab-badge' }, '机器人号') : h('span', { className: 'ab-muted ab-small' }, '不会碰'))))))) : null,
         ),
+        h(Card, { title: 'QQ 会话放在哪', desc: '每个 QQ 私聊 / 群都是 DSH 里「Aurabot · QQ」工作区下的一个会话，她在会话里读写文件也在这个文件夹。改了以后新开的会话放到新位置；已有的会话还在原来的地方，想全部挪过去就在「概览」点「重新开始所有 QQ 会话」。' },
+          h(Row, { label: '工作区文件夹', hint: '填完整路径（比如 D:\\Aurabot\\qq-chats）；留空 = 默认位置' }, f.text('workspaceDir', { size: 'wide', placeholder: st.workspaceDir || '' })),
+          h('div', { className: 'ab-muted ab-small' }, '现在用的：' + (st.workspaceDir || '—'))),
         h(Card, { title: '连接状态' },
           h('div', { className: 'ab-kv' },
             h('span', null, 'QQ 网关'), h('span', null, h('span', { className: 'ab-flex' }, h('i', { className: cx('ab-dot', conn ? 'ok' : st.onebot.state === 'connecting' ? 'warn' : 'err') }), { connected: '已连上', connecting: '连接中', disconnected: '断开了，正在重连', stopped: '没启动（总开关关着）', unconfigured: '还没配置' }[st.onebot.state] || st.onebot.state)),
@@ -668,7 +838,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
           !conn && st.onebot.problem ? h('div', { className: 'ab-note warn', style: { marginTop: 10 } }, st.onebot.problem) : null,
           h('div', { className: 'ab-flex', style: { marginTop: 10 } }, h(Btn, { small: true, onClick: async () => { const r = await post('/onebot/reconnect'); toast(r.message, r.ok ? 'ok' : 'err'); reload() } }, '重新连接')),
         ),
-        h(Card, { title: '高级', desc: linux ? 'Linux 使用外部 OneBot 接入，保存后需要打开总开关才会建立连接。' : '一般不用动：地址和令牌会自动从 SnowLuma 的配置里读。' },
+        external ? null : h(Card, { title: '高级', desc: '一般不用动：地址和令牌会自动从 SnowLuma 的配置里读。' },
           h(Row, { label: '机器人 QQ 号' }, f.text('botQQ')),
           (!linux ? h(Row, { label: '控制台端口' }, f.num('snowluma.webuiPort', { min: 1, max: 65535 })) : null),
           (!linux ? h(Row, { label: '控制台密码', hint: '默认由插件自动生成，上面「显示密码」能看到。想自己定一个就填在这里，保存后会真的改到 SnowLuma 上（至少 10 位，要有大小写字母和符号，不能有空格）' }, f.text('snowluma.webuiPassword', { type: 'password', placeholder: draft.snowluma.webuiPasswordSet ? (draft.snowluma.passwordAuto ? '自动管理中（不改就留空）' : '已保存（不改就留空）') : '留空 = 自动' })) : null),
@@ -711,40 +881,144 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
         h('div', { className: 'ab-muted ab-small', style: { marginTop: 6 } }, '这是面板里显示的头像；点「同步成 QQ 头像」才会改机器人号在 QQ 上的头像。'))
     }
 
+    // 人格按【标题】分节：面板里拆开逐节编辑，保存时按原来的写法拼回一整段（文件格式不变）
+    const PSEC_HEAD = /^【([^】\n]{1,30})】\s*$/
+    const PSEC_SUGGEST = ['你的样子', '性格', '打字习惯', '情绪是活的', '你的生活', '和主人的关系', '绝对禁止']
+    let psecSeq = 0
+    const psec = (title, text) => ({ k: ++psecSeq, title, text })
+    const splitPersona = (body) => {
+      const out = [psec(null, '')]
+      let cur = out[0]
+      let buf = []
+      const flush = () => { cur.text = buf.join('\n').replace(/^\n+/, '').replace(/\s+$/, ''); buf = [] }
+      for (const line of String(body || '').replace(/\r\n/g, '\n').split('\n')) {
+        // 复制粘贴来的人设常带看不见的零宽字符（行首一个 U+200B），认标题时不算它
+        const m = PSEC_HEAD.exec(line.replace(/[​-‍﻿]/g, '').trim())
+        if (m) { flush(); cur = psec(m[1].trim(), ''); out.push(cur) } else buf.push(line)
+      }
+      flush()
+      return out
+    }
+    const joinPersona = (secs) => secs
+      .map((s) => (s.title === null ? s.text.trim() : '【' + (s.title.trim() || '未命名') + '】\n' + s.text.replace(/\s+$/, '')))
+      .filter(Boolean).join('\n\n')
+    const autoRows = (text) => Math.min(22, Math.max(3, String(text || '').split('\n').length + 1))
+
+    /** 一节设定：标题、正文、上下移、删除、AI 润色。润色后原版和润色版只显示一个，按钮来回切，选定一个另一个就丢掉。 */
+    function PersonaSection({ sec, lead, first, last, onChange, onMove, onDelete, onPolish, pending, onPick, onFlip }) {
+      const showing = pending ? (pending.view === 'new' ? pending.text : sec.text) : sec.text
+      return h('div', { className: cx('ab-psec', lead && 'lead', pending && 'cmp') },
+        h('div', { className: 'ab-psec-head' },
+          lead
+            ? h('div', { className: 'ab-psec-fixed' }, '开场', h('small', null, '她是谁，一两段话'))
+            : h('input', { className: 'ab-psec-title', value: sec.title, placeholder: '这一节叫什么', maxLength: 30, onChange: (e) => onChange({ title: e.target.value.replace(/[【】\n]/g, '') }) }),
+          h('span', { className: 'ab-psec-n' }, showing.length + ' 字'),
+          h('div', { className: 'ab-psec-act' },
+            lead ? null : h('button', { type: 'button', className: 'ab-ibtn', title: '往上移', disabled: first || !!pending, onClick: () => onMove(-1) }, navIcon('M12 19V5M6 11l6-6 6 6')),
+            lead ? null : h('button', { type: 'button', className: 'ab-ibtn', title: '往下移', disabled: last || !!pending, onClick: () => onMove(1) }, navIcon('M12 5v14M6 13l6 6 6-6')),
+            lead ? null : h('button', { type: 'button', className: 'ab-ibtn danger', title: '删掉这一节', disabled: !!pending, onClick: onDelete }, navIcon('M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12'))),
+          pending
+            ? null
+            : h(AiButton, { onClick: onPolish, empty: !sec.text.trim() })),
+        h('textarea', {
+          value: showing, rows: autoRows(showing), readOnly: !!pending,
+          placeholder: lead ? '你是「…」，一个真实存在的人，正在用手机 QQ 和对面聊天。' : '- 一条一行，短句就好',
+          onChange: (e) => onChange({ text: e.target.value }),
+        }),
+        pending ? h('div', { className: 'ab-compare' },
+          h('span', { className: 'ab-compare-tag' }, pending.view === 'new' ? 'AI 润色版' : '原版'),
+          h('span', { className: 'ab-muted ab-small' }, pending.view === 'new' ? '和原版比：' + (pending.text.length - sec.text.length >= 0 ? '多 ' : '少 ') + Math.abs(pending.text.length - sec.text.length) + ' 字' : '还没改过的样子'),
+          h('div', { className: 'ab-spacer' }),
+          h('button', { type: 'button', className: 'ab-chip solid', onClick: onFlip }, pending.view === 'new' ? '看原版' : '看润色版'),
+          h(Btn, { small: true, kind: 'primary', onClick: () => onPick(pending.view) }, pending.view === 'new' ? '用润色版' : '保留原版')) : null)
+    }
+    function AiButton({ onClick, empty }) {
+      const [busy, setBusy] = useState(false)
+      return h('button', {
+        type: 'button', className: 'ab-aibtn', disabled: busy, title: empty ? '让 AI 按这一节的标题先写一版' : '让 AI 把这一节改得更具体、更像真人',
+        onClick: async () => { setBusy(true); try { await onClick() } finally { setBusy(false) } },
+      },
+      busy ? h('i', { className: 'ab-spin' }) : navIcon('M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z'),
+      h('span', null, busy ? '润色中' : empty ? 'AI 写一版' : 'AI 润色'))
+    }
+
     function Persona({ st, toast, reload }) {
       const [list, setList] = useState(st.personas)
       const [current, setCurrent] = useState(st.config.persona.current)
       const [sel, setSel] = useState(st.config.persona.current)
-      const [edit, setEdit] = useState(null)
+      const [edit, setEdit] = useState(null) // { id, name, tags, secs }
       const [dirty, setDirty] = useState(false)
+      const [pending, setPending] = useState({}) // 节的 k → { text, view: 'new' | 'old' } AI 润色还没选定的
+      const [whole, setWhole] = useState(() => { try { return localStorage.getItem('aurabot.persona.whole') === '1' } catch (e) { return false } })
       const load = async (id) => {
         const r = await get('/persona/get?id=' + encodeURIComponent(id))
-        if (r.ok) { setEdit({ id: r.persona.id, name: r.persona.name, tags: (r.persona.tags || []).join('，'), body: r.persona.body }); setDirty(false) }
+        if (r.ok) { setEdit({ id: r.persona.id, name: r.persona.name, tags: (r.persona.tags || []).join('，'), secs: splitPersona(r.persona.body) }); setDirty(false); setPending({}) }
       }
       useEffect(() => { load(sel) }, [sel])
       const refresh = async () => { const r = await get('/personas'); if (r.ok) { setList(r.list); setCurrent(r.current) } }
+      const body = edit ? joinPersona(edit.secs) : ''
+      const waiting = Object.keys(pending).length
       const save = async () => {
-        const r = await post('/persona/save', { id: edit.id, name: edit.name, tags: edit.tags.split(/[,，\s]+/).filter(Boolean), body: edit.body })
+        const r = await post('/persona/save', { id: edit.id, name: edit.name, tags: edit.tags.split(/[,，\s]+/).filter(Boolean), body })
         toast(r.message || (r.ok ? '保存好了' : '没保存成功'))
         if (r.ok) { setDirty(false); refresh() }
       }
-      const upd = (k) => (e) => { setEdit({ ...edit, [k]: e.target.value }); setDirty(true) }
+      const patch = (p) => { setEdit({ ...edit, ...p }); setDirty(true) }
+      const setSecs = (secs) => patch({ secs })
+      const updSec = (k, p) => setSecs(edit.secs.map((s) => (s.k === k ? { ...s, ...p } : s)))
+      const moveSec = (i, d) => { const n = edit.secs.slice(); const [x] = n.splice(i, 1); n.splice(i + d, 0, x); setSecs(n) }
+      const delSec = (s) => { if (s.text.trim() && !confirm('删掉「' + (s.title || '未命名') + '」这一节？')) return; setSecs(edit.secs.filter((x) => x.k !== s.k)) }
+      const addSec = (title) => setSecs([...edit.secs, psec(title, '')])
+      const polish = async (s) => {
+        const r = await post('/persona/polish', { name: edit.name, title: s.title === null ? '' : s.title, text: s.text, others: edit.secs.filter((x) => x.k !== s.k).map((x) => (x.title === null ? '开场' : x.title)) })
+        if (!r.ok) { toast(r.message || '润色没成功', 'err'); return }
+        if (!s.text.trim()) { updSec(s.k, { text: r.text }); toast('写好了，不满意就接着改', 'ok'); return }
+        setPending({ ...pending, [s.k]: { text: r.text, view: 'new' } })
+      }
+      const pick = (s, view) => {
+        const next = { ...pending }
+        delete next[s.k]
+        setPending(next)
+        if (view === 'new') updSec(s.k, { text: pending[s.k].text })
+      }
+      const flip = (s) => setPending({ ...pending, [s.k]: { ...pending[s.k], view: pending[s.k].view === 'new' ? 'old' : 'new' } })
+      const setMode = (w) => { if (w && waiting) { toast('先把 AI 润色的那几节选定一版', 'err'); return } setWhole(w); try { localStorage.setItem('aurabot.persona.whole', w ? '1' : '0') } catch (e) {} }
+      const titles = edit ? edit.secs.map((s) => s.title) : []
+      const suggest = PSEC_SUGGEST.filter((t) => !titles.includes(t))
       return h('div', { className: 'ab-persona' },
         h('div', { className: 'ab-plist' },
           list.map((p) => h('button', { key: p.id, type: 'button', className: cx('ab-pitem', sel === p.id && 'on'), onClick: () => setSel(p.id) },
             h('div', { className: 'nm' }, p.name, p.id === current ? h('span', { className: 'ab-badge' }, '正在用') : null),
             h('div', { className: 'tg' }, (p.tags || []).join(' · ') || p.id + ' · ' + p.chars + ' 字'))),
-          h(Btn, { kind: 'ghost', onClick: () => { const id = 'persona-' + Date.now().toString(36); setEdit({ id, name: '新人格', tags: '', body: '你是……\n\n【说话方式】\n- 短句、口语，一次只说一两句。' }); setSel(id); setDirty(true) } }, '＋ 新建人格'),
+          h(Btn, { kind: 'ghost', onClick: () => { const id = 'persona-' + Date.now().toString(36); setEdit({ id, name: '新人格', tags: '', secs: splitPersona('你是……\n\n【打字习惯】\n- 短句、口语，一次只说一两句。') }); setSel(id); setDirty(true); setPending({}) } }, '＋ 新建人格'),
           h(AvatarCard, { st, toast, reload }),
         ),
-        edit ? h(Card, { title: '编辑人格', desc: '人格写在系统提示词的最前面。保存后，大肥鱼下一轮回复起就按新的来。',
+        edit ? h(Card, { title: '编辑人格', desc: '人格写在系统提示词的最前面，按节写更好改。保存后，大肥鱼下一轮回复起就按新的来。',
           right: h('div', { className: 'ab-flex' },
             edit.id !== current ? h(Btn, { small: true, onClick: async () => { const r = await post('/persona/use', { id: edit.id }); toast(r.message); refresh(); reload() } }, '设为当前') : null,
             edit.id !== current ? h(Btn, { small: true, kind: 'danger', onClick: async () => { if (!confirm('删掉这个人格？')) return; const r = await post('/persona/delete', { id: edit.id }); if (r.ok) { setList(r.list); setSel(current) } else toast(r.message) } }, '删除') : null) },
-          h(Row, { label: '名字' }, h('input', { className: 'ab-input', value: edit.name, onChange: upd('name') })),
-          h(Row, { label: '标签', hint: '用逗号隔开' }, h('input', { className: 'ab-input', value: edit.tags, onChange: upd('tags') })),
-          h('div', { style: { marginTop: 8 } }, h('textarea', { className: 'ab-textarea', style: { minHeight: 380 }, value: edit.body, onChange: upd('body') })),
-          h('div', { className: 'ab-flex', style: { marginTop: 10 } }, h('span', { className: 'ab-muted ab-small' }, edit.body.length + ' 字'), h('div', { className: 'ab-spacer' }), h(Btn, { kind: 'primary', disabled: !dirty, onClick: save }, dirty ? '保存人格' : '已保存')),
+          h(Row, { label: '名字' }, h('input', { className: 'ab-input', value: edit.name, onChange: (e) => patch({ name: e.target.value }) })),
+          h(Row, { label: '标签', hint: '用逗号隔开' }, h('input', { className: 'ab-input', value: edit.tags, onChange: (e) => patch({ tags: e.target.value }) })),
+          h('div', { className: 'ab-flex', style: { marginTop: 14 } },
+            h(Seg, { value: whole ? 'whole' : 'secs', onChange: (v) => setMode(v === 'whole'), options: [{ value: 'secs', label: '分节' }, { value: 'whole', label: '整段' }] }),
+            h('div', { className: 'ab-spacer' }),
+            h('span', { className: 'ab-muted ab-small' }, (edit.secs.length - 1) + ' 节 · ' + body.length + ' 字')),
+          whole
+            ? h('textarea', { className: 'ab-textarea', style: { minHeight: 380, marginTop: 12 }, value: body, onChange: (e) => setSecs(splitPersona(e.target.value)) })
+            : h('div', { className: 'ab-psecs' },
+              edit.secs.map((s, i) => h(PersonaSection, {
+                key: s.k, sec: s, lead: s.title === null, first: i <= 1, last: i === edit.secs.length - 1, pending: pending[s.k],
+                onChange: (p) => updSec(s.k, p), onMove: (d) => moveSec(i, d), onDelete: () => delSec(s),
+                onPolish: () => polish(s), onPick: (v) => pick(s, v), onFlip: () => flip(s),
+              })),
+              h('div', { className: 'ab-psec-add' },
+                h('span', { className: 'ab-muted ab-small' }, '加一节：'),
+                suggest.map((t) => h('button', { key: t, type: 'button', className: 'ab-chip', onClick: () => addSec(t) }, t)),
+                h('button', { type: 'button', className: 'ab-chip solid', onClick: () => addSec('') }, '＋ 自己起名'))),
+          h('div', { className: 'ab-flex', style: { marginTop: 14 } },
+            waiting ? h('span', { className: 'ab-muted ab-small' }, '还有 ' + waiting + ' 节 AI 润色没选定，选好再保存') : null,
+            h('div', { className: 'ab-spacer' }),
+            h(Btn, { kind: 'primary', disabled: !dirty || !!waiting, onClick: save }, dirty ? '保存人格' : '已保存')),
         ) : h(Card, null, h(Empty, { icon: '⏳', text: '加载中…' })),
       )
     }
@@ -763,13 +1037,45 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
                 { value: 'chat', label: '纯聊天', desc: '什么工具都没有，只聊天' },
               ] }),
               h('div', { className: 'ab-muted ab-small', style: { marginTop: 8 } }, '切换后会给主人私聊换一个新的 DSH 会话（旧的还在侧栏里）。'))),
+          h(Row, { label: '长任务模式', hint: '只在「完整」权限下生效。打开后她能把命令放到后台跑、跑完自动回来告诉你，也能设定时任务；工具多一点，回话会稍慢。切换后同样换新会话。' },
+            h(Choices, { value: draft.longTasks ? 'on' : 'off', onChange: (v) => setDraft(setPath(draft, 'longTasks', v === 'on')), options: [
+              { value: 'off', label: '关', desc: '维持现在的速度（默认）' },
+              { value: 'on', label: '开', desc: '挂上后台任务（jobs）+ 定时任务（schedule）' },
+            ] })),
         ),
+        h(ProfilePerms, { draft, setDraft }),
         h(Card, { title: '白名单', desc: '只有名单里的人和群，她才会理。一行一个号码。' },
           h(Row, { label: '私聊白名单', hint: '主人默认就在里面。' }, f.list('allow.private', { placeholder: '每行一个 QQ 号', numbers: true })),
           h(Row, { label: '群白名单', hint: '把机器人拉进群后，把群号加到这里。' }, f.list('allow.groups', { placeholder: '每行一个群号', numbers: true })),
         ),
         h(GroupRoles, null),
         h(CommandList, null),
+      )
+    }
+
+    /** 改资料类操作的权限：关 / 仅主人私聊 / 所有人。 */
+    function ProfilePerms({ draft, setDraft }) {
+      const perms = draft.profilePerms || {}
+      const opts = [
+        { value: 'off', label: '关', desc: '谁说都不改' },
+        { value: 'owner', label: '仅主人私聊', desc: '只有你私聊让她改才改（默认）' },
+        { value: 'all', label: '所有人', desc: '白名单里的人、群里的人都能让她改' },
+      ]
+      const row = (key, label, hint) => h(Row, { label, hint },
+        h(Choices, { value: perms[key] || 'owner', onChange: (v) => setDraft(setPath(draft, 'profilePerms.' + key, v)), options: opts }))
+      return h(Card, { title: '改资料与名单', desc: '她能不能听人的话改自己的 QQ 昵称、签名、头像和 B 站签名，处理好友申请、改白名单，以及抖音上的浏览、点赞、评论、分享。改 QQ 资料要 SnowLuma 支持（set_qq_profile / set_self_longnick / set_qq_avatar）。抖音各项默认仅主人，要放开自己在这里开。' },
+        row('qqNickname', 'QQ 昵称'),
+        row('qqSignature', 'QQ 个性签名'),
+        row('qqAvatar', 'QQ 头像', '只用网址图片，或「刚才发的那张图」。'),
+        row('biliSign', 'B 站签名', '要先在 B 站页登录并打开 B 站。'),
+        row('biliAvatar', 'B 站头像', '要先在 B 站页登录并打开 B 站。图片网址或刚才发的图，最大 2MB。'),
+        row('qqFriendRequest', '处理好友申请', '让她通过 / 拒绝别人加她为好友的申请。她自己主动加别人暂不支持（SnowLuma 没有这个接口）。'),
+        row('whitelist', '改白名单', '让她把 QQ 号 / 群号加进或移出下面的白名单。主人不会被移出。开成「所有人」前请想清楚。'),
+        row('douyinBrowse', '刷抖音 / 看视频', '让她去刷推荐（douyin_browse）、点开别人发来的抖音链接（douyin_watch）。定时自己刷不受这项限制。'),
+        row('douyinLike', '抖音点赞', '有人让她给某个视频点赞；关掉后她自己刷的时候也不点赞。'),
+        row('douyinComment', '抖音评论', '有人让她去某个视频下评论；关掉后她自己刷的时候也不评论。'),
+        row('douyinShareOwner', '分享抖音给主人', '刷到好玩的视频在 QQ 私聊里发给你（她的话 + 链接）。'),
+        row('douyinDm', '主动发抖音私信', '主人明确让她给某个人发私信时（主页链接或抖音号）；列表里没有会话会从对方主页发起。默认仅主人私聊。'),
       )
     }
 
@@ -811,7 +1117,12 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
           h(Row, { label: '群里停顿多久算一段', hint: '群里大家你一句我一句，多等一会儿把一段话攒齐再回；她回上一段的时候，新消息也会先攒着' }, f.range('merge.groupWaitSec', 1, 20, 1, (v) => v + ' 秒')),
           h(Row, { label: '群里最多等多久' }, f.range('merge.groupMaxSec', 3, 60, 1, (v) => v + ' 秒')),
         ),
-        h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复她的消息、或者提到下面这些名字时，她一定会回。' },
+        h(Card, { title: '发文件', right: f.sw('files.enabled'), desc: '打开后，你在私聊里可以让她把本机文件当文件发到 QQ，也能按你说的发给白名单里的人或群。她只能发 QQ 工作区和下面目录里的文件；单个文件有大小上限；发过什么会记在日志里。' },
+          h(Row, { label: '单个文件最大' }, f.num('files.maxMB', { min: 1, max: 2048 }), h('span', { className: 'ab-muted' }, ' MB')),
+          h(Row, { label: '额外允许的目录', hint: '一行一个完整路径。QQ 工作区里的文件一直允许，不用写；留空 = 只能发工作区里的' }, f.list('files.dirs', { placeholder: 'D:\\Aurabot\\要发的文件' })),
+        ),
+                h(Card, { title: '危险命令确认', right: f.sw('security.dangerConfirm'), desc: '打开后，她在私聊里要执行终端危险命令（删根目录、格式化、关机、下载后直接执行等）之前，会先发 QQ 私聊问你；你回复「确认」才执行，回复「取消」或 60 秒没回就拦下。默认关。只拦真正致命的命令，普通删除/构建/改文件不受影响。' }),
+h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复她的消息、或者提到下面这些名字时，她一定会回。' },
           h(Row, { label: '唤醒词', hint: '一行一个' }, f.list('group.wakeWords', { placeholder: '大肥鱼\n肥鱼' })),
         ),
         h(Card, { title: '安全刹车', desc: '只防失控（比如和别的机器人聊停不下来）：她在一个群里短时间说太多就歇一会儿，主人 @ 她除外。平时碰不到。' },
@@ -843,12 +1154,60 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       )
     }
 
+    /** 按聊天选模型：私聊默认 / 群聊默认两个下拉，单个 QQ / 群的例外放在默认收起的小列表里。 */
+    function ChatModels({ draft, setDraft, list }) {
+      const cm = draft.chatModels || { privateDefault: {}, groupDefault: {}, privates: {}, groups: {} }
+      const [open, setOpen] = useState(false)
+      const [add, setAdd] = useState({ kind: 'private', id: '', sel: '' })
+      const key = (m) => m.provider + '::' + m.model
+      const val = (s) => (s && s.provider && s.model ? s.provider + '::' + s.model : '')
+      const toSel = (v) => { const [p, ...m] = v.split('::'); return v ? { provider: p, model: m.join('::'), reasoningEffort: '' } : { provider: '', model: '', reasoningEffort: '' } }
+      const base = [{ value: '', label: '跟随全局模型', desc: '上面「聊天用的模型」' }].concat((list || []).map((m) => ({ value: key(m), label: m.name, desc: m.provider, group: m.provider })))
+      const optsFor = (v) => (v && !base.some((o) => o.value === v) ? base.concat([{ value: v, label: v.split('::').slice(1).join('::'), desc: '（DSH 里没找到）' }]) : base)
+      const setCm = (patch) => setDraft(setPath(draft, 'chatModels', { ...cm, ...patch }))
+      const rows = [['private', cm.privates || {}], ['group', cm.groups || {}]].flatMap(([kind, m]) => Object.entries(m).map(([id, sel]) => ({ kind, id, sel })))
+      const label = (sel) => { const v = val(sel); const hit = (list || []).find((m) => key(m) === v); return hit ? hit.name : sel.model }
+      const addRow = () => {
+        if (!add.id || !add.sel) return
+        const field = add.kind === 'private' ? 'privates' : 'groups'
+        setCm({ [field]: { ...(cm[field] || {}), [add.id]: toSel(add.sel) } })
+        setAdd({ ...add, id: '' })
+      }
+      const remove = (kind, id) => { const field = kind === 'private' ? 'privates' : 'groups'; const n = { ...(cm[field] || {}) }; delete n[id]; setCm({ [field]: n }) }
+      return h(Card, { title: '按聊天选模型', desc: '顺序：这个私聊 > 这个群 > 所有私聊 / 所有群的默认 > 上面的全局模型。没选的一级就用下一级；选的模型在 DSH 里找不到时也自动退回。只有你能在这里改，聊天里的人换不了。换了之后从那个聊天的下一条消息起生效。' },
+        h(Row, { label: '私聊默认模型' }, h(Select, { value: val(cm.privateDefault), width: 280, options: optsFor(val(cm.privateDefault)), onChange: (v) => setCm({ privateDefault: toSel(v) }) })),
+        h(Row, { label: '群聊默认模型' }, h(Select, { value: val(cm.groupDefault), width: 280, options: optsFor(val(cm.groupDefault)), onChange: (v) => setCm({ groupDefault: toSel(v) }) })),
+        h('div', { style: { marginTop: 8 } }, h(Btn, { small: true, kind: 'ghost', onClick: () => setOpen(!open) }, (open ? '收起' : '展开') + '单个 QQ / 群的例外（' + rows.length + '）')),
+        open ? h('div', { style: { marginTop: 8 } },
+          rows.length === 0 ? h('div', { className: 'ab-muted', style: { marginBottom: 10 } }, '还没有单独设置的 QQ 或群。') :
+            rows.map((r) => h(Row, { key: r.kind + r.id, label: (r.kind === 'private' ? '私聊 ' : '群 ') + r.id }, h('span', { className: 'ab-muted' }, label(r.sel)), h(Btn, { small: true, kind: 'ghost', onClick: () => remove(r.kind, r.id) }, '移除'))),
+          h('div', { className: 'ab-flex' },
+            h(Seg, { value: add.kind, onChange: (v) => setAdd({ ...add, kind: v }), options: [{ value: 'private', label: '私聊' }, { value: 'group', label: '群' }] }),
+            h('input', { className: 'ab-input', placeholder: add.kind === 'private' ? 'QQ 号' : '群号', value: add.id, onChange: (e) => setAdd({ ...add, id: e.target.value.replace(/\D/g, '') }) }),
+            h(Select, { value: add.sel, width: 220, options: base.filter((o) => o.value), placeholder: '选模型', onChange: (v) => setAdd({ ...add, sel: v }) }),
+            h(Btn, { small: true, disabled: !add.id || !add.sel, onClick: addRow }, '添加'))) : null)
+    }
+
     function Model({ draft, setDraft, toast }) {
       const [list, setList] = useState(null)
       const [ping, setPing] = useState({})
       useEffect(() => { get('/models').then((r) => setList(r.list || [])) }, [])
       const key = (m) => m.provider + '::' + m.model
       const cur = draft.model.provider && draft.model.model ? draft.model.provider + '::' + draft.model.model : ''
+      const curModel = cur && list ? list.find((m) => key(m) === cur) : null
+      // reasoning === null 表示 DSH 明确说这个模型不支持思考强度（本地 Ollama 之类）
+      const noReasoning = Boolean(curModel && curModel.reasoning === null)
+      // 视觉能力：自动时把 DSH 的声明显示出来，主人一眼能看出会不会降级
+      const autoVision = curModel ? curModel.vision : undefined
+      const visionHint = draft.model.vision === 'on'
+        ? '强制当「能看图」；模型其实看不了的话，带图的那一轮会报错'
+        : draft.model.vision === 'off'
+          ? '强制当「看不懂」：收到图片只给一行文字提示，不会把图塞给模型'
+          : autoVision === true
+            ? '自动：DSH 说这个模型支持看图'
+            : autoVision === false
+              ? '自动：DSH 说这个模型看不了图，会自动降级成文字提示'
+              : '自动：DSH 没声明，默认照发；真看不了就手动选「不支持」'
       const test = async (m) => {
         setPing({ ...ping, [key(m)]: '测速中…' })
         const r = await post('/model/ping', { provider: m.provider, model: m.model })
@@ -856,7 +1215,12 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       }
       return h('div', { className: 'ab-grid' },
         h(Card, { title: '聊天用的模型', desc: '新建的 QQ 会话按这里的设置来；已有会话也可以在 DSH 里点开单独切换。聊天对速度很敏感，可以先点「测速」挑个快的。' },
-          h(Row, { label: '思考强度', hint: '自动（不指定）兼容无推理等级的模型；模型明确支持时可选低/高/最高' }, h(Seg, { value: draft.model.reasoningEffort ?? '', onChange: (v) => setDraft(setPath(draft, 'model.reasoningEffort', v)), options: [{ value: '', label: '自动' }, { value: 'low', label: '低' }, { value: 'high', label: '高' }, { value: 'max', label: '最高' }] })),
+          h(Row, { label: '思考强度', hint: noReasoning ? '这个模型不支持思考强度；自动模式不会指定等级' : '自动模式跟随模型默认，或指定低/高/最高' }, h(Seg, { value: draft.model.reasoningEffort ?? '', onChange: (v) => setDraft(setPath(draft, 'model.reasoningEffort', v)), options: [{ value: '', label: '自动' }, { value: 'low', label: '低' }, { value: 'high', label: '高' }, { value: 'max', label: '最高' }] })),
+          h(Row, { label: '视觉能力', hint: visionHint }, h(Seg, {
+            value: draft.model.vision || 'auto',
+            onChange: (v) => setDraft(setPath(draft, 'model.vision', v)),
+            options: [{ value: 'auto', label: '自动' }, { value: 'on', label: '支持' }, { value: 'off', label: '不支持' }],
+          })),
           h(Row, { label: '模型' },
             h(Select, {
               value: cur, width: 280,
@@ -866,6 +1230,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
             cur ? h(Btn, { small: true, onClick: () => test({ provider: draft.model.provider, model: draft.model.model }) }, '测速') : null,
             cur && ping[cur] ? h('span', { className: 'ab-muted ab-small' }, ping[cur]) : null),
         ),
+        h(ChatModels, { draft, setDraft, list }),
         h(Card, { title: '可用的模型', desc: '点「测速」会真的问一次模型（花一点点额度），看它回一句话要多久。' },
           list === null ? h(Empty, { icon: '⏳', text: '加载中…' }) : list.length === 0 ? h(Empty, { text: 'DSH 没有列出模型' }) :
             h('table', { className: 'ab-table' }, h('tbody', null, list.map((m) => h('tr', { key: key(m) },
@@ -898,6 +1263,15 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
               { value: 'zh-CN-liaoning-XiaobeiNeural', label: '晓北', desc: '东北女声', group: '方言' }, { value: 'zh-CN-shaanxi-XiaoniNeural', label: '晓妮', desc: '陕西女声', group: '方言' },
               { value: 'zh-TW-HsiaoChenNeural', label: '曉臻', desc: '台湾女声', group: '方言' }], { width: 220 })),
             h(Row, { key: 'r', label: '语速' }, f.select('voice.rate', [{ value: '-20%', label: '慢一点' }, { value: '-10%', label: '稍慢' }, { value: '+0%', label: '正常' }, { value: '+10%', label: '稍快' }, { value: '+20%', label: '快一点' }], { width: 140 })),
+            h(Row, { key: 'p', label: '音调', hint: '拖动调整，±80Hz 为上限（实测再往上 edge-tts 会静默夹住）；只对 edge-tts 有效' },
+              h(Range, {
+                min: -80,
+                max: 80,
+                step: 10,
+                value: pitchNum(draft.voice.pitch),
+                fmt: pitchLabel,
+                onChange: (v) => setDraft(setPath(draft, 'voice.pitch', pitchText(v))),
+              })),
           ] : null,
           draft.voice.engine === 'cosyvoice' ? [
             h(Row, { key: 'u', label: '服务地址', hint: 'CosyVoice 自带 runtime/python/fastapi/server.py' }, f.text('voice.cosyvoice.url', { size: 'wide', placeholder: 'http://127.0.0.1:50000' })),
@@ -966,6 +1340,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       return h('div', { className: 'ab-grid' },
         h(Card, { title: '表情包', right: f.sw('stickers.enabled'), desc: '回复里写 <sticker:名字> 就会发对应的表情；也会按概率自动配一张。' },
           h(Row, { label: '自动配表情的概率' }, f.percent('stickers.autoChance')),
+          h(Row, { label: '夹 QQ 小黄脸', hint: '回复里能夹 QQ 自带的系统表情（/捂脸 /斜眼笑 这种），和文字在同一条消息里' }, f.sw('stickers.faces')),
           h(Row, { label: '偷表情', hint: '别人发的表情包会被收藏（普通照片不收）。' }, f.sw('stickers.collect'), h('span', { className: 'ab-muted' }, '从群里'), f.sw('stickers.fromGroups'), h('span', { className: 'ab-muted' }, '从私聊'), f.sw('stickers.fromPrivate')),
           h(Row, { label: '每小时最多收' }, f.num('stickers.maxPerHour', { min: 0 }), h('span', { className: 'ab-muted' }, '张')),
           h(Row, { label: '表情库最多存', hint: 'QQ 收藏表情有数量上限，满了就收不进去了。超过这个数会自动清掉最少用的偷来的表情（你自己加的不会动）' }, f.num('stickers.maxLibrary', { min: 20, max: 2000 }), h('span', { className: 'ab-muted' }, '张')),
@@ -983,14 +1358,65 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       )
     }
 
+    /** 一张表情：名字（备注）和标签都能直接改，改完离开输入框就保存（#31：模型起的名字 / 标签不对时手动纠正）。 */
     function StickerCell({ it, onChanged, toast }) {
       const [name, setName] = useState(it.name || '')
+      const tagText = (it.tags || []).join(' ')
+      const [tags, setTags] = useState(tagText)
+      const save = async (body, label) => {
+        const r = await post('/sticker/rename', { md5: it.md5, ...body })
+        toast(r.ok ? label + '改好了' : '没改成：' + (r.message || '找不到这张表情'), r.ok ? 'ok' : 'err')
+        if (r.ok) onChanged()
+      }
       return h('div', { className: 'ab-sticker' },
         h('img', { src: API + '/sticker/image?md5=' + it.md5, alt: it.name || '表情', loading: 'lazy' }),
-        h('input', { className: 'nm', value: name, placeholder: '未命名', maxLength: 12, onChange: (e) => setName(e.target.value),
-          onBlur: async () => { if (name !== (it.name || '')) { await post('/sticker/rename', { md5: it.md5, name }); toast('改好了') } } }),
-        h('div', { className: 'tg' }, (it.tags || []).join(' · ')),
+        h('input', { className: 'nm', value: name, placeholder: '未命名（点这里改）', title: '名字 / 备注，最多 12 字', maxLength: 12, onChange: (e) => setName(e.target.value),
+          onBlur: () => { if (name !== (it.name || '')) save({ name }, '名字') } }),
+        h('input', { className: 'tg', value: tags, placeholder: '加标签，空格隔开', title: '标签，空格或逗号隔开，最多 5 个', onChange: (e) => setTags(e.target.value),
+          onBlur: () => { if (tags.trim() !== tagText) save({ tags: tags.split(/[\s,，、#]+/).map((x) => x.trim()).filter(Boolean).slice(0, 5) }, '标签') } }),
         h('button', { type: 'button', className: 'ab-btn sm danger x', title: '删除', onClick: async () => { if (!confirm('删掉这张表情？（QQ 收藏里也会删）')) return; await post('/sticker/delete', { md5: it.md5 }); onChanged() } }, '✕'),
+      )
+    }
+
+    // 和 QQ 空间自身的可见范围一致（ugc_right 1/4/16/64/128）
+    const AUDIENCE_OPTIONS = [
+      { value: 'all', label: '所有人可见' },
+      { value: 'friends', label: '好友可见' },
+      { value: 'selected', label: '部分好友可见' },
+      { value: 'excluded', label: '部分好友不可见' },
+      { value: 'self', label: '仅自己可见' },
+    ]
+    const AUDIENCE_LABEL = Object.fromEntries(AUDIENCE_OPTIONS.map((o) => [o.value, o.label]))
+
+    /** 可见范围：固定范围存进配置；部分好友再配一份 QQ 名单。 */
+    function DiaryAudience({ draft, setDraft, toast }) {
+      const mode = draft.diary.visibility
+      const partial = mode === 'selected' || mode === 'excluded'
+      const [friends, setFriends] = useState(null)
+      const [query, setQuery] = useState('')
+      const qqText = draft.diary.audienceQQs || ''
+      const selected = Array.from(new Set(String(qqText).split(/[\s,，;；]+/).filter(Boolean)))
+      const setList = (list) => setDraft(setPath(draft, 'diary.audienceQQs', Array.from(new Set(list)).join('\n')))
+      const toggle = (qq) => setList(selected.includes(qq) ? selected.filter((q) => q !== qq) : [...selected, qq])
+      return h('div', null,
+        h(Row, { label: '谁能看', hint: '和 QQ 空间的可见范围一致' },
+          h(Select, { value: mode, options: AUDIENCE_OPTIONS, width: 170, onChange: (v) => setDraft(setPath(draft, 'diary.visibility', v)) })),
+        partial ? h('div', { style: { marginTop: 10 } },
+          h('div', { className: 'ab-flex', style: { gap: 8, marginBottom: 8 } },
+            h(Btn, { small: true, kind: 'ghost', onClick: async () => { try { const r = await get('/diary/friends'); if (!r.ok) return toast(r.message || '读取好友失败'); setFriends(r.friends) } catch (e) { toast(e.message) } } }, '从好友列表选择'),
+            h('span', { className: 'ab-muted ab-small' }, '已选 ' + selected.length + ' 人，只对之后发的说说生效')),
+          friends ? h('div', { style: { marginBottom: 8 } },
+            h('input', { className: 'ab-input', placeholder: '搜索昵称或 QQ 号', value: query, onChange: (e) => setQuery(e.target.value) }),
+            h('div', { style: { maxHeight: 220, overflow: 'auto', marginTop: 6 } },
+              friends.filter((f) => (f.name + f.qq).toLowerCase().includes(query.toLowerCase())).map((f) =>
+                h('label', { key: f.qq, style: { display: 'block', padding: '4px 2px' } },
+                  h('input', { type: 'checkbox', checked: selected.includes(f.qq), onChange: () => toggle(f.qq) }),
+                  ' ' + (f.name || '（无备注）') + '（' + f.qq + '）')))) : null,
+          h('textarea', {
+            className: 'ab-textarea', style: { minHeight: 64 }, placeholder: '也可以直接填 QQ 号，一行一个',
+            value: qqText, onChange: (e) => setDraft(setPath(draft, 'diary.audienceQQs', e.target.value)),
+          }),
+          h('div', { className: 'ab-small ab-muted', style: { marginTop: 6 } }, mode === 'selected' ? '名单为空时不会发布，也不会退回公开。' : '这些好友看不到之后的说说。')) : null,
       )
     }
 
@@ -998,7 +1424,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       const f = useField(draft, setDraft)
       const [data, setData] = useState(null)
       const on = modOn(st, 'diary')
-      const load = () => (on ? get('/diary/history').then(setData) : null)
+      const load = () => (on ? get('/diary/history').then((r) => { setData(r); if (r.warning) toast(r.warning) }).catch((e) => toast('日记状态刷新失败：' + e.message)) : null)
       useEffect(() => { load() }, [on])
       const social = modOn(st, 'qzone-social') ? h(QzoneSocial, { draft, setDraft, toast }) : h(ModOff, { name: '空间互动' })
       if (!on) return h('div', { className: 'ab-grid' }, h(ModOff, { name: '空间日记' }), social)
@@ -1008,16 +1434,18 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
           h(Row, { label: '时间段', hint: '在这段时间里随机挑时间' }, f.text('diary.windowStart', { size: 'sm' }), h('span', { className: 'ab-muted' }, '到'), f.text('diary.windowEnd', { size: 'sm' })),
           h(Row, { label: '两篇至少隔' }, f.num('diary.minGapMinutes', { min: 0 }), h('span', { className: 'ab-muted' }, '分钟')),
           h(Row, { label: '字数' }, f.num('diary.minChars', { min: 10 }), h('span', { className: 'ab-muted' }, '到'), f.num('diary.maxChars', { min: 20 }), h('span', { className: 'ab-muted' }, '字')),
-          h(Row, { label: '谁能看' }, h(Seg, { value: draft.diary.visibility, onChange: (v) => setDraft(setPath(draft, 'diary.visibility', v)), options: [{ value: 'all', label: '所有人' }, { value: 'self', label: '仅自己' }] })),
+          h(Row, { label: '日记配图', hint: '开着时每篇会从「今天她画的图 / 今天收的表情包」里挑一张配上去；没有合适的就只发文字' }, f.sw('diary.attachImage')),
+          h(DiaryAudience, { draft, setDraft, toast }),
         ),
         h(Card, { title: '写过的日记', right: h('div', { className: 'ab-flex' },
           data && data.next ? h('span', { className: 'ab-muted ab-small' }, '下一篇大约 ' + data.next) : null,
-          h(Btn, { small: true, kind: 'primary', onClick: async () => { toast('她在写了…'); const r = await post('/diary/run', {}); toast(r.ok ? (r.dryRun ? '写好了（试运行，没真发）' : '发出去了') : r.message); load() } }, '现在写一篇')) },
+          h(Btn, { small: true, kind: 'ghost', title: '刷新空间状态', onClick: load }, h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, 'aria-hidden': true }, h('path', { d: 'M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17' }))),
+          h(Btn, { small: true, kind: 'primary', onClick: async () => { toast('她在写了…'); try { const r = await post('/diary/run', {}); toast(r.ok ? (r.dryRun ? '写好了（试运行，没真发）' : '发出去了') : r.message) } catch (e) { toast(e.message) } finally { await load() } } }, '现在写一篇')) },
           !data ? h(Empty, { icon: '⏳', text: '加载中…' }) : !data.items || data.items.length === 0 ? h(Empty, { icon: '📔', text: '还没写过日记。' }) :
             h('div', { className: 'ab-list' }, data.items.map((d, i) => h('div', { key: i, className: 'ab-li' },
-              h('div', { className: 'meta' }, new Date(d.at).toLocaleString(), h('br'), d.dryRun ? '试运行' : d.ok ? (d.visibility === 'self' ? '仅自己可见' : '已发布') : '失败'),
+              h('div', { className: 'meta' }, new Date(d.at).toLocaleString(), h('br'), d.deletedAt ? '已从空间删除' : d.dryRun ? '试运行' : d.ok ? (AUDIENCE_LABEL[d.visibility] || '已发布') : '失败'),
               h('div', { className: 'body' }, d.text, d.error ? h('div', { className: 'ab-small', style: { color: 'var(--ab-err)' } }, d.error) : null),
-              d.tid ? h(Btn, { small: true, kind: 'ghost', onClick: async () => { if (!confirm('从 QQ 空间删除这条说说？')) return; const r = await post('/qzone/delete', { tid: d.tid }); toast(r.message) } }, '从空间删除') : null))),
+              d.tid && !d.deletedAt ? h(Btn, { small: true, kind: 'ghost', onClick: async () => { if (!confirm('从 QQ 空间删除这条说说？')) return; try { const r = await post('/qzone/delete', { tid: d.tid }); toast(r.message) } catch (e) { toast(e.message) } finally { await load() } } }, '从空间删除') : null))),
         ),
         social,
       )
@@ -1657,16 +2085,18 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
         m.panel ? h(ExtPanel, { m, settings, toast, reload }) : null)
     }
 
-    const BILI_KIND = { watch: '看了', comment: '评论', reply: '回复', share: '分享给你', error: '没成功' }
+    const BILI_KIND = { watch: '看了', comment: '评论', reply: '回复', share: '分享给你', shot: '发你截图', error: '没成功' }
 
     /** B 站：登录、定时刷、评论 / 回复、分享给主人，以及她刷过什么。 */
     function Bili({ draft, setDraft, toast }) {
       const f = useField(draft, setDraft)
       const [s, setS] = useState(null)
       const [busy, setBusy] = useState('')
-      const load = () => get('/bili/state').then(setS)
-      useEffect(() => { load() }, [])
-      const act = (path, label) => async () => { setBusy(label); const r = await post(path); setBusy(''); toast(r.message, r.ok ? 'ok' : 'err'); load() }
+      const [shots, setShots] = useState(null)
+      const load = () => get('/bili/state').then(setS).catch((e) => toast(e.message, 'err'))
+      const loadShots = () => get('/bili/shots').then((r) => setShots(r.items || [])).catch((e) => { setShots([]); toast(e.message, 'err') })
+      useEffect(() => { load(); loadShots() }, [])
+      const act = (path, label) => async () => { setBusy(label); const r = await post(path); setBusy(''); toast(r.message, r.ok ? 'ok' : 'err'); load(); loadShots() }
       const acct = s && s.account
       return h('div', { className: 'ab-grid' },
         h(Card, { title: '刷 B 站', right: f.sw('bili.enabled'), desc: '她会定时去 B 站刷几个视频：从她的兴趣、记忆里你喜欢的东西和下面的关键词里挑方向去搜，读简介、字幕和热评，再按自己的性格决定评不评论、要不要私聊分享给你、记住什么。看过的、评过的都记成她的经历，聊天时会自然提起。你在 QQ 里发 B 站链接或分享卡片，她也能点进去看完再聊。' },
@@ -1683,6 +2113,19 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
           h(Row, { label: '额外想看的方向', hint: '一行一个；另外还会参考她的兴趣和记忆' }, f.list('bili.keywords', { placeholder: '白米饭 做法\n猫咪\n游戏解说' })),
           h(Row, { label: '播放量门槛' }, f.num('bili.minViews', { min: 0 }), h('span', { className: 'ab-muted' }, '次以上')),
           h(Row, { label: '只看最近' }, f.num('bili.maxAgeDays', { min: 0 }), h('span', { className: 'ab-muted' }, '天内发的（0 = 不限）')),
+        ),
+        h(Card, { title: '看画面（抽帧 + 视觉）', desc: '默认只读标题、简介、字幕和热评。打开后用 ffmpeg 抽帧交给视觉模型，截图保存到本机，可以在 QQ 聊天里让她挑一张发送。没有 ffmpeg、模型明确不支持图片或处理失败时，自动继续文字阅读。' },
+          h(Row, { label: '让她看画面', hint: '需要视觉模型 + ffmpeg；关掉就退回只看文字' }, f.sw('bili.vision')),
+          h(Row, { label: '每个视频抽几帧' }, f.range('bili.visionFrames', 2, 12, 1, (v) => v + ' 帧')),
+          h(Row, { label: '刷完顺手发张截图', hint: '概率；跟发一张表情包一样默认 35%，0 = 从不。截图都存在本机，你让她发她也能挑' }, f.range('bili.shotChance', 0, 1, 0.05, (v) => Math.round(v * 100) + '%')),
+          h(Row, { label: '截图库最多存', hint: '超过就自动删最旧的；下面的截图库里也能一张张手动删' }, f.num('bili.shotLibrary', { min: 20, max: 2000 }), h('span', { className: 'ab-muted' }, '张')),
+          h(Row, { label: 'ffmpeg 路径', hint: '留空就自己在 PATH 里找；找不到就填绝对路径' }, f.text('bili.ffmpegPath', { placeholder: 'C:\\ffmpeg\\bin\\ffmpeg.exe' })),
+          s && s.vision ? h('div', { className: 'ab-small', style: { marginTop: 4, color: s.vision.ffmpeg ? 'var(--ab-ok)' : 'var(--ab-warn)' } }, (s.vision.ffmpeg ? '✓ 已找到 ffmpeg：' + s.vision.ffmpeg : '✗ 没找到 ffmpeg：抽帧会被跳过，装一个或者在上面填路径') + (s.shots ? '　·　手上存了 ' + s.shots.count + ' 张截图' : '')) : null,
+        ),
+        h(Card, { title: '截图库' + (shots ? '（' + shots.length + ' / ' + ((draft.bili && draft.bili.shotLibrary) || 300) + '）' : ''), right: h('div', { className: 'ab-flex' },
+          h(Btn, { small: true, kind: 'ghost', onClick: loadShots }, '刷新')) },
+          !shots ? h(Empty, { icon: '⏳', text: '加载中…' }) : shots.length === 0 ? h(Empty, { icon: '🎬', text: '还没有截图。打开上面的「让她看画面」刷一轮 B 站，就会开始截。' }) :
+            h('div', { className: 'ab-shots' }, shots.map((it) => h(ShotCell, { key: it.file, it, onChanged: () => { loadShots(); load() }, toast }))),
         ),
         h(Card, { title: '评论、回复和分享', desc: '评论和回复要登录。试运行开着时只记日志不发。' },
           h(Row, { label: '自己发评论' }, f.sw('bili.comment'), h('span', { className: 'ab-muted' }, '每天最多'), f.num('bili.maxCommentsPerDay', { min: 0, max: 50 }), h('span', { className: 'ab-muted' }, '条')),
@@ -1703,19 +2146,241 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       )
     }
 
-    function ImageGen({ draft, setDraft }) {
+    function ShotCell({ it, onChanged, toast }) {
+      const src = API + '/bili/shot/image?file=' + encodeURIComponent(it.file)
+      const cap = (it.title ? '《' + it.title + '》' : '截图') + (it.clock ? '　' + it.clock : '')
+      return h('div', { className: 'ab-shot' },
+        h('a', { href: src, target: '_blank', rel: 'noreferrer' }, h('img', { src, alt: cap, loading: 'lazy' })),
+        h('div', { className: 'cap', title: it.note || '' }, cap),
+        h('button', {
+          type: 'button',
+          className: 'ab-btn sm danger x',
+          title: '删除',
+          onClick: async () => {
+            if (!confirm('删掉这张截图？\n' + cap)) return
+            const r = await post('/bili/shot/delete', { file: it.file })
+            toast(r.message || '删掉了', r.ok ? 'ok' : 'err')
+            onChanged()
+          },
+        }, '✕'),
+      )
+    }
+
+    const DOUYIN_KIND = { watch: '看了', look: '点开看', like: '点赞', comment: '评论', share: '分享给你', dm: '回你私信', 'dry:dm': '试运行·私信', 'dry:like': '试运行·点赞', 'dry:comment': '试运行·评论', error: '没成功' }
+
+    /** 抖音：专用浏览器扫码登录、定时刷、点赞 / 评论、在 QQ 上分享给主人，以及她刷过什么。 */
+    function Douyin({ draft, setDraft, toast }) {
+      const f = useField(draft, setDraft)
+      const [s, setS] = useState(null)
+      const [busy, setBusy] = useState('')
+      const [login, setLogin] = useState(null) // 扫码进行中：{ shot, message }
+      // 只读状态：打开这一页不会启动浏览器
+      const load = () => get('/douyin/state').then(setS)
+      useEffect(() => { load() }, [])
+      const act = (path, label, body) => async () => { setBusy(label); const r = await post(path, body); setBusy(''); toast(r.message || (r.ok ? '好了' : '没成功'), r.ok ? 'ok' : 'err'); load() }
+      useEffect(() => {
+        if (!login) return undefined
+        const t = setInterval(async () => {
+          const r = await get('/douyin/login/status')
+          if (r.loggedIn) { setLogin(null); toast(r.message, 'ok'); load() } else if (r.ok) setLogin(r)
+        }, 2500)
+        return () => clearInterval(t)
+      }, [Boolean(login)])
+      const startLogin = async () => {
+        setBusy('login')
+        const r = await post('/douyin/login')
+        setBusy('')
+        if (r.loggedIn) { toast(r.message, 'ok'); load() } else if (r.ok) setLogin(r)
+        else toast(r.message || '打不开浏览器', 'err')
+      }
+      const acct = s && s.account
+      const acctText = !acct || acct.unknown ? h('span', { className: 'ab-small ab-muted' }, '还没检查过') :
+        h('span', { className: 'ab-small', style: { color: acct.loggedIn ? 'var(--ab-ok)' : 'var(--ab-warn)' } },
+          acct.loggedIn ? '已登录：' + (acct.nickname || '') : (acct.message || acct.error || '还没登录'),
+          acct.at ? h('span', { className: 'ab-muted' }, ' · ' + timeAgo(acct.at) + '查的') : null)
+      const caps = (s && s.caps) || {}
+      return h('div', { className: 'ab-grid' },
+        h(Card, { title: '刷抖音', right: f.sw('douyin.enabled'), desc: '她用一个专用浏览器（独立的登录资料，不碰你平时用的浏览器）刷抖音：定时打开推荐，一个个点开看，读标题、分类、抖音给的内容摘要和热评，再按自己的性格决定点不点赞、评不评论（特别想让你看的会在评论里 @你）、要不要在 QQ 上分享给你、记住什么。你在 QQ 里发抖音链接，她也能点开看完再聊。浏览器窗口放在屏幕外，不抢前台。总开关默认关：先扫码登录，再打开。' },
+          h(Row, { label: '抖音账号', hint: '建议用小号。扫一次码就行，登录状态存在专用浏览器里' },
+            h('div', null,
+              h('div', { className: 'ab-flex' },
+                h(Btn, { small: true, kind: 'primary', onClick: startLogin, disabled: !!busy || !!login }, busy === 'login' ? '正在打开浏览器…' : login ? '等你扫码…' : '扫码登录'),
+                h(Btn, { small: true, onClick: async () => { setBusy('check'); const r = await get('/douyin/account'); setBusy(''); setS({ ...(s || {}), account: r }) }, disabled: !!busy }, busy === 'check' ? '检查中…' : '检查登录'),
+                acctText),
+              login ? h('div', { style: { marginTop: 10, display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' } },
+                login.shot ? h('img', { src: login.shot, alt: '抖音登录', style: { maxWidth: 360, width: '100%', borderRadius: 10, border: '1px solid var(--ab-line)', background: '#fff' } }) : h('div', { className: 'ab-muted ab-small' }, '二维码还没出来，稍等…'),
+                h('div', { className: 'ab-small', style: { flex: 1, minWidth: 160 } },
+                  h('div', null, login.message || '用抖音 App 扫码'),
+                  h('div', { className: 'ab-flex', style: { marginTop: 8 } },
+                    h(Btn, { small: true, onClick: act('/douyin/window', 'win', { visible: true }) }, '显示浏览器窗口'),
+                    h(Btn, { small: true, onClick: () => setLogin(null) }, '先不登了')))) : null)),
+          h(Row, { label: '浏览器窗口', hint: '遇到验证码、扫码后要短信验证时，挪到屏幕上处理' },
+            h('div', { className: 'ab-flex' },
+              h(Btn, { small: true, onClick: act('/douyin/window', 'win', { visible: true }), disabled: !!busy }, '显示浏览器窗口'),
+              h(Btn, { small: true, onClick: act('/douyin/window', 'win', { visible: false }), disabled: !!busy }, '收起窗口'))),
+          h(Row, { label: '浏览器路径', hint: '留空 = 自动找 Edge（找不到再找 Chrome / Chromium）' }, f.text('douyin.browserPath', { size: 'wide', placeholder: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' })),
+        ),
+        h(Card, { title: '主人抖音号', desc: '填你的抖音号或主页链接，点「核对」。核对过之后，她刷到特别想让你看的视频，会在评论里真的 @你（用抖音自己的 @ 选人，按你的账号 id 认人，你会收到抖音通知；认不出你就不发，不会发假 @）。改了输入要重新核对。' },
+          h(Row, { label: '你的抖音号 / 主页链接' }, f.text('douyin.owner.input', { size: 'wide', placeholder: '抖音号，或 https://www.douyin.com/user/…' })),
+          h('div', { className: 'ab-flex', style: { marginTop: 4 } },
+            h(Btn, { small: true, kind: 'primary', onClick: act('/douyin/confirm-owner', 'confirm', { input: ((draft.douyin || {}).owner || {}).input || '' }), disabled: !!busy }, busy === 'confirm' ? '核对中…' : '核对'),
+            s && s.owner ? h('span', { className: 'ab-small', style: { color: 'var(--ab-ok)' } }, '已核对：' + s.owner.nickname) : h('span', { className: 'ab-small ab-muted' }, '还没核对（不核对就不会 @你）')),
+        ),
+        h(Card, { title: '抖音私信', desc: '你在抖音上私信她，她会用自己的口气回（只认上面核对过的你，别人的私信不理）。让她找视频的话，她会尝试刷一轮再私信分享给你；这条流程仍需实际环境验证。只在「主动搭话」里设的醒着时间内回。' },
+          h(Row, { label: '回你的抖音私信' }, f.sw('douyin.ownerDm')),
+          h(Row, { label: '多久看一次' }, f.num('douyin.dmPollMinutes', { min: 1, max: 60 }), h('span', { className: 'ab-muted' }, '分钟'), h(Btn, { small: true, onClick: act('/douyin/dms', 'dms'), disabled: !!busy }, busy === 'dms' ? '正在看…' : '现在看一次')),
+        ),
+        h(Card, { title: '怎么刷', desc: '只在「主动搭话」里设的醒着时间内自己刷。主人在 QQ 里让她「去刷会儿抖音」也行。' },
+          h(Row, { label: '定时自己去刷' }, f.sw('douyin.autoBrowse')),
+          h(Row, { label: '多久刷一轮' }, f.range('douyin.intervalHours', 1, 24, 1, (v) => v + ' 小时')),
+          h(Row, { label: '每天最多刷' }, f.range('douyin.maxRunsPerDay', 0, 12, 1, (v) => v + ' 轮')),
+          h(Row, { label: '一轮看几个' }, f.range('douyin.perRun', 1, 10, 1, (v) => v + ' 个')),
+          h(Row, { label: '每天最多看' }, f.num('douyin.maxWatchPerDay', { min: 0, max: 200 }), h('span', { className: 'ab-muted' }, '个（含手动）')),
+          h(Row, { label: '每个视频停留', hint: '真的在播放；停得越短越不像真人' }, f.num('douyin.dwellMin', { min: 3 }), h('span', { className: 'ab-muted' }, '～'), f.num('douyin.dwellMax', { min: 3 }), h('span', { className: 'ab-muted' }, '秒')),
+          h(Row, { label: '分享到哪', hint: '抖音私信要先在上面核对你的抖音号；没核对或者发不出去时会改发 QQ' }, f.choices('douyin.shareTo', [
+            { value: 'douyin', label: '抖音私信', desc: '在抖音里把视频分享给你（只有视频卡片）' },
+            { value: 'qq', label: 'QQ 私聊', desc: '她的话 + 视频链接' },
+            { value: 'both', label: '两边都发', desc: '抖音里收视频卡片，QQ 上看她说了什么' },
+          ])),
+          h(Row, { label: '分享给你', hint: '刷到好看的视频，分享给你的积极程度' }, f.choices('douyin.shareBias', [
+            { value: 'proactive', label: '积极', desc: '好看有趣就分享' },
+            { value: 'normal', label: '适中', desc: '觉得你会喜欢才分享' },
+            { value: 'stingy', label: '少分享', desc: '拿不准就不发' },
+          ])),
+        ),
+        h(Card, { title: '每天上限', desc: '刚登录的号前几天上限自动减半（新号猛点赞最容易被风控）。遇到验证码 / 操作频繁当天就停手，看还能看。试运行开着时只记日志不真点。权限在「权限」页单独设（默认仅主人）。' },
+          h(Row, { label: '点赞' }, f.num('douyin.caps.like', { min: 0, max: 300 })),
+          h(Row, { label: '评论' }, f.num('douyin.caps.comment', { min: 0, max: 30 })),
+          h(Row, { label: '分享给你' }, f.num('douyin.caps.share', { min: 0, max: 30 })),
+          h(Row, { label: '评论里 @你', hint: '也算在评论次数里' }, f.num('douyin.caps.atOwner', { min: 0, max: 30 })),
+          h(Row, { label: '点赞 + 评论合计' }, f.num('douyin.gate.maxWritesPerDay', { min: 1, max: 500 })),
+          h(Row, { label: '两次点赞 / 评论间隔' }, f.num('douyin.gate.minWriteGapSec', { min: 0, max: 600 }), h('span', { className: 'ab-muted' }, '秒')),
+          h(Row, { label: '新号减半' }, f.num('douyin.gate.newAccountDays', { min: 0, max: 30 }), h('span', { className: 'ab-muted' }, '天')),
+        ),
+        h(Card, { title: '她刷过什么', right: h('div', { className: 'ab-flex' },
+          h(Btn, { small: true, onClick: load }, '刷新'),
+          h(Btn, { small: true, kind: 'primary', onClick: act('/douyin/run', 'run'), disabled: !!busy || Boolean(s && s.busy) }, s && s.busy ? h(Fragment, null, h('i', { className: 'ab-spin' }), ' 正在刷…') : '现在刷一轮')) },
+          s && s.pauseReason ? h('div', { className: 'ab-note warn', style: { marginBottom: 8 } }, '今天先不点赞评论了：' + s.pauseReason + '。要验证的话点上面「显示浏览器窗口」处理，明天自动恢复。') : null,
+          s ? h('div', { className: 'ab-muted ab-small', style: { marginBottom: 8 } },
+            '今天自动刷了 ' + s.runs + ' 轮 · 看了 ' + s.watched + ' · 赞 ' + s.like + '/' + caps.like + ' · 评 ' + s.comment + '/' + caps.comment + ' · 分享 ' + s.share + '/' + caps.share + (s.atOwner ? ' · @你 ' + s.atOwner + '/' + caps.atOwner : '') +
+            (s.newAccount ? '（新号，上限减半）' : '') +
+            (s.lastRun ? ' · 上次 ' + timeAgo(s.lastRun) : '') +
+            (s.lastSkipReason ? ' · 上次没刷成：' + s.lastSkipReason : '')) : null,
+          !s ? h(Empty, { icon: '⏳', text: '加载中…' }) : s.history.length === 0 ? h(Empty, { icon: '📱', text: '还没刷过。先扫码登录、打开开关，再点「现在刷一轮」。' }) :
+            h('div', { className: 'ab-list' }, s.history.map((x, i) => h('div', { key: i, className: 'ab-li' },
+              h('div', { className: 'meta' }, timeAgo(x.at), h('br'), DOUYIN_KIND[x.kind] || x.kind),
+              h('div', { className: 'body' },
+                x.awemeId ? h('a', { href: 'https://www.douyin.com/video/' + x.awemeId, target: '_blank', rel: 'noreferrer' }, x.title || (x.author ? x.author + ' 的视频' : x.awemeId)) : null,
+                x.author && x.title ? h('span', { className: 'ab-muted' }, ' · ' + x.author) : null,
+                x.text ? h('div', { className: 'ab-muted' }, (x.atOwner ? '@你 ' : '') + (x.via ? '（' + x.via.map((w) => (w === 'douyin' ? '抖音私信' : 'QQ')).join(' + ') + '）' : '') + x.text) : null)))),
+        ),
+      )
+    }
+
+    /** 「她的画作」：读存图目录里最近的 N 张，可以单张删除、开文件夹。 */
+    function PaintGallery({ draft, setDraft, toast }) {
+      const f = useField(draft, setDraft)
+      const shown = Math.min(50, Math.max(1, Number(draft.imageGen && draft.imageGen.galleryShown) || 20))
+      const [data, setData] = useState(null)
+      const load = async () => {
+        const r = await get('/image/gallery?limit=' + shown).catch(() => null)
+        setData(r && r.ok ? r : { items: [], total: 0, dir: '' })
+      }
+      useEffect(() => { load() }, [shown])
+      const del = async (file) => {
+        if (!confirm('删掉这张画？\n' + file)) return
+        const r = await post('/image/gallery/delete', { file }).catch(() => ({ ok: false }))
+        toast(r.message || (r.ok ? '删掉了' : '删除失败'), r.ok ? 'ok' : 'err')
+        load()
+      }
+      return h(Card, {
+        title: '她的画作' + (data ? '（显示最近 ' + data.items.length + ' 张 / 共 ' + data.total + ' 张）' : ''),
+        desc: '她画过的图都存在本机（不会自动删），这里只是面板里显示多少张。想看全部或者清理，点「打开文件夹」。',
+        right: h('div', { className: 'ab-flex' },
+          h(Btn, { small: true, kind: 'ghost', onClick: load }, '刷新'),
+          h(Btn, { small: true, kind: 'ghost', onClick: () => post('/image/open-folder').then((r) => toast(r.message, r.ok ? 'ok' : 'err')).catch(() => toast('打不开文件夹', 'err')) }, '打开文件夹')),
+      },
+        h(Row, { label: '面板显示最近', hint: '最多 50 张；只影响面板显示，不删文件' },
+          f.num('imageGen.galleryShown', { min: 1, max: 50 }), h('span', { className: 'ab-muted' }, '张')),
+        data && data.dir ? h('div', { className: 'ab-muted ab-small', style: { margin: '4px 0 8px', wordBreak: 'break-all' } }, '存图目录：' + data.dir) : null,
+        !data ? h(Empty, { icon: '⏳', text: '加载中…' })
+          : data.items.length === 0 ? h(Empty, { icon: '🎨', text: '她还没画过图。在聊天里说「画一张……」，画好的图会出现在这里。' })
+            : h('div', { className: 'ab-shots' }, data.items.map((it) => h(PaintCell, { key: it.file, it, onDelete: () => del(it.file) }))),
+      )
+    }
+
+    function PaintCell({ it, onDelete }) {
+      const src = API + '/image/gallery/image?file=' + encodeURIComponent(it.file)
+      const cap = it.prompt ? '「' + it.prompt + '」' : '画作'
+      const when = it.at ? timeAgo(it.at) : ''
+      return h('div', { className: 'ab-shot' },
+        h('a', { href: src, target: '_blank', rel: 'noreferrer' }, h('img', { src, alt: cap, loading: 'lazy' })),
+        h('div', { className: 'cap', title: cap }, cap + (when ? '　' + when : '')),
+        h('button', { type: 'button', className: 'ab-btn sm danger x', title: '删除', onClick: onDelete }, '✕'),
+      )
+    }
+
+    function ImageGen({ draft, setDraft, toast }) {
       const f = useField(draft, setDraft)
       const c = draft.imageGen
+      const custom = c.custom || {}
+      const isCustom = c.provider === 'custom'
+      const isPost = custom.method === 'POST'
+      const params = Array.isArray(custom.params) ? custom.params : []
+      const setParams = (next) => setDraft(setPath(draft, 'imageGen.custom.params', next))
+      const setP = (i, k, v) => setParams(params.map((p, j) => (j === i ? { ...p, [k]: v } : p)))
       return h('div', { className: 'ab-grid' },
-        h(Card, { title: '让她画图', right: f.sw('imageGen.enabled'), desc: '接上一个生图服务后，聊天里让她「画一张……」，她会画好直接发出来。支持兼容 OpenAI 生图接口（/v1/images/generations）的服务：硅基流动、各家大模型平台，或本地 ComfyUI / SD WebUI 的 OpenAI 兼容代理。想直接用本地的 SD WebUI / ComfyUI API？去「本地接口」页接「生图」，这里可以不填。' },
-          h(Row, { label: '服务地址', hint: '一般以 /v1 结尾' }, f.text('imageGen.baseUrl', { size: 'wide', placeholder: 'https://api.siliconflow.cn/v1' })),
-          h(Row, { label: 'API Key', hint: '只存在本机，不会显示出来' }, f.text('imageGen.apiKey', { type: 'password', placeholder: c.apiKeySet ? '已保存（不改就留空）' : '没有就留空' })),
-          h(Row, { label: '模型' }, f.text('imageGen.model', { size: 'wide', placeholder: '例如 Kwai-Kolors/Kolors' })),
-          h(Row, { label: '图片尺寸' }, f.select('imageGen.size', [{ value: '1024x1024', label: '1024 × 1024', desc: '方图' }, { value: '768x1024', label: '768 × 1024', desc: '竖图' }, { value: '1024x768', label: '1024 × 768', desc: '横图' }, { value: '512x512', label: '512 × 512', desc: '小图，更快' }], { width: 200 })),
+        h(Card, { title: '让她画图', right: f.sw('imageGen.enabled'), desc: '接上一个生图服务后，聊天里让她「画一张……」，她会画好直接发出来。两种接法：OpenAI 兼容接口（/v1/images/generations，硅基流动、各家大模型平台、ComfyUI / SD WebUI 的兼容代理），或者自己填一个按 URL 调用的接口。想用本机的 SD WebUI / ComfyUI？去「本地接口」页接「生图」，这里可以不填。' },
+          h(Row, { label: '接口格式', hint: '第二个适合 pollinations 这类「GET 一个地址就出图」的服务' },
+            h(Seg, {
+              value: isCustom ? 'custom' : 'openai',
+              onChange: (v) => setDraft(setPath(draft, 'imageGen.provider', v)),
+              options: [{ value: 'openai', label: 'OpenAI 格式' }, { value: 'custom', label: '自定义接口' }],
+            })),
+          isCustom ? h('div', null,
+            h(Row, { label: '请求方式', hint: 'GET 把参数都拼在地址上；POST 放进请求体' },
+              h(Seg, {
+                value: isPost ? 'POST' : 'GET',
+                onChange: (v) => setDraft(setPath(draft, 'imageGen.custom.method', v)),
+                options: [{ value: 'GET', label: 'GET' }, { value: 'POST', label: 'POST' }],
+              })),
+            h(Row, { label: '接口地址', hint: '可以用 {prompt} {model} {size} {width} {height}' },
+              f.text('imageGen.custom.url', { size: 'wide', placeholder: 'https://image.pollinations.ai/prompt/{prompt}' })),
+            h(Row, { label: 'API Key', hint: '会以 Authorization: Bearer 发出；不需要就留空' },
+              f.text('imageGen.apiKey', { type: 'password', placeholder: c.apiKeySet ? '已保存（不改就留空）' : '没有就留空' })),
+            h('div', { className: 'ab-label', style: { marginTop: 12 } },
+              h('b', null, isPost ? '请求体参数' : 'URL 参数'),
+              h('small', null, '参数名和值都自己填；值里可以用 {prompt}')),
+            params.length
+              ? params.map((p, i) => h('div', { key: i, className: 'ab-flex', style: { gap: 6, marginBottom: 6 } },
+                h('input', { className: 'ab-input', style: { width: 170 }, value: p.key || '', placeholder: '参数名，如 model', onChange: (e) => setP(i, 'key', e.target.value) }),
+                h('input', { className: 'ab-input', style: { flex: 1 }, value: p.value || '', placeholder: '值，可以用 {prompt}', onChange: (e) => setP(i, 'value', e.target.value) }),
+                h(Btn, { small: true, onClick: () => setParams(params.filter((_, j) => j !== i)) }, '删')))
+              : h('div', { className: 'ab-muted ab-small', style: { marginBottom: 6 } }, '还没有参数 —— 比如 model=flux-anime、width=1080、height=1920、nologo=true'),
+            h('div', { className: 'ab-flex', style: { marginBottom: 10 } },
+              h(Btn, { small: true, onClick: () => setParams([...params, { key: '', value: '' }]) }, '＋ 加一个参数')),
+            isPost ? h(Row, { label: '请求体格式' },
+              h(Seg, {
+                value: custom.bodyType === 'form' ? 'form' : 'json',
+                onChange: (v) => setDraft(setPath(draft, 'imageGen.custom.bodyType', v)),
+                options: [{ value: 'json', label: 'JSON' }, { value: 'form', label: '表单' }],
+              })) : null,
+            h(Row, { label: '取值路径', hint: '接口直接回图片就留空；回 JSON 时填地址字段' },
+              f.text('imageGen.custom.responsePath', { size: 'wide', placeholder: '如 data.0.url（留空自动找）' })),
+          ) : h('div', null,
+            h(Row, { label: '服务地址', hint: '一般以 /v1 结尾' }, f.text('imageGen.baseUrl', { size: 'wide', placeholder: 'https://api.siliconflow.cn/v1' })),
+            h(Row, { label: 'API Key', hint: '只存在本机，不会显示出来' }, f.text('imageGen.apiKey', { type: 'password', placeholder: c.apiKeySet ? '已保存（不改就留空）' : '没有就留空' })),
+            h(Row, { label: '模型' }, f.text('imageGen.model', { size: 'wide', placeholder: '例如 Kwai-Kolors/Kolors' })),
+          ),
+          h(Row, { label: '图片尺寸', hint: isCustom ? '接口地址 / 参数里可以用 {size} 或 {width}/{height}' : '' },
+            f.select('imageGen.size', [{ value: '1024x1024', label: '1024 × 1024', desc: '方图' }, { value: '768x1024', label: '768 × 1024', desc: '竖图' }, { value: '1024x768', label: '1024 × 768', desc: '横图' }, { value: '512x512', label: '512 × 512', desc: '小图，更快' }], { width: 200 })),
           h(Row, { label: '固定风格', hint: '每次画都会加在描述前面' }, f.text('imageGen.stylePrompt', { size: 'wide', placeholder: '例如：日系二次元，柔和光线，蓝白配色' })),
           h(Row, { label: '只给主人画', hint: '关掉后群友也能让她画（会花你的额度）' }, f.sw('imageGen.ownerOnly')),
-          !c.enabled ? h('div', { className: 'ab-note', style: { marginTop: 10 } }, '还没开启。填好地址和模型、打开右上角开关并保存后，她就会多一个「画图」能力。') : null,
+          h(Row, { label: '让她画完自己看一眼', hint: '开着才把画好的图传给她看（模型不支持看图时自动不传）；关掉就只回一句「画好了」，不传图' }, f.sw('imageGen.seeOwn')),
+          isCustom ? h('div', { className: 'ab-note', style: { marginTop: 10 } }, '例子：地址填 https://image.pollinations.ai/prompt/{prompt}，再加 model=flux-anime、width=1080、height=1920、nologo=true 四个参数，GET 就会请求 …/prompt/<提示词>?model=flux-anime&width=1080&…') : null,
+          !c.enabled ? h('div', { className: 'ab-note', style: { marginTop: 10 } }, '还没开启。填好接口信息、打开右上角开关并保存后，她就会多一个「画图」能力。') : null,
         ),
+        h(PaintGallery, { draft, setDraft, toast }),
       )
     }
 
@@ -1736,7 +2401,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
     }
 
     // ---------------- 首次使用向导 ----------------
-    const WIZ_STEPS = ['你们的 QQ 号', '准备 SnowLuma', '启动并同意协议', '接入机器人号', '完成']
+    const WIZ_STEPS = ['你们的 QQ 号', '接 QQ 网关', '启动并同意协议', '连上机器人号', '完成']
 
     function Wizard({ st, draft, setDraft, save, toast, reload, onClose }) {
       const [step, setStep] = useState(() => { try { return Number(localStorage.getItem('aurabot.wiz') || 0) } catch (e) { return 0 } })
@@ -1748,12 +2413,18 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       const [procs, setProcs] = useState(null)
       const [live, setLive] = useState('dry')
       const qqOk = /^\d{5,11}$/.test(draft.botQQ || '') && /^\d{5,11}$/.test(draft.ownerQQ || '') && draft.botQQ !== draft.ownerQQ
-      const canNext = [qqOk, sl.installed, sl.running && sl.consented, conn && login && login.uin === st.config.botQQ, true][step]
+      const external = draft.gateway === 'onebot'
+      const verified = conn && login && String(login.uin) === String(st.config.botQQ) && !st.onebot.problem
+      const canNext = [qqOk, external ? Boolean(draft.snowluma.wsUrl || st.config.snowluma.wsUrl) : sl.installed, external || (sl.running && sl.consented), verified, true][step]
       const next = async () => {
-        if (step === 0 || step === 1) await save({ ...draft, enabled: true })
-        if (step === 3) {} // 已连上
+        if ((step === 0 || step === 1) && !(await save({ ...draft, enabled: true }))) return
         go(Math.min(step + 1, WIZ_STEPS.length - 1))
         reload()
+      }
+      const useExisting = async () => {
+        const r = await post('/setup/done', { existingConnection: true })
+        toast(r.message, r.ok ? 'ok' : 'err')
+        if (r.ok) { try { localStorage.removeItem('aurabot.wiz') } catch (e) {} reload(); onClose && onClose() }
       }
       const body = [
         // 0. QQ 号
@@ -1763,16 +2434,22 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
           h(Row, { label: '你的 QQ 号（主人）', hint: '群管、操作电脑这些只听主人的' }, f.text('ownerQQ', { placeholder: '你的大号' })),
           h(Row, { label: '她怎么称呼你' }, f.text('ownerName', { placeholder: '主人' })),
           draft.botQQ && draft.ownerQQ && draft.botQQ === draft.ownerQQ ? h('div', { className: 'ab-note err' }, '机器人号和主人号不能是同一个。') : null),
-        // 1. SnowLuma
+        // 1. SnowLuma，或接已有的 OneBot 机器人
+        external ? h('div', null,
+          h(GatewayChoice, { draft, setDraft }),
+          h('p', { className: 'ab-desc', style: { marginTop: 10 } }, '让你的 OneBot 服务（NapCat、LLOneBot、Lagrange、Docker 里的 SnowLuma……）登录机器人号，把它的正向 WebSocket 地址填在下面。插件只连接，不会启动或注入任何东西。'),
+          h(OneBotFields, { draft, f })) :
         h('div', null,
-          h('p', { className: 'ab-desc' }, 'SnowLuma 是让机器人号上线的 QQ 网关。它的协议不允许别的程序自动下载安装，所以这一步要你自己来（只用做一次）。'),
+          h(GatewayChoice, { draft, setDraft }),
+          h('p', { className: 'ab-desc', style: { marginTop: 10 } }, 'SnowLuma 是让机器人号上线的 QQ 网关。它的协议不允许别的程序自动下载安装，所以这一步要你自己来（只用做一次）。'),
           h('div', { className: 'ab-steps' },
             h('div', { className: 'ab-step' }, h('div', null, h('b', null, '下载'), h('div', { className: 'ab-muted ab-small' }, '下载 Windows 完整版，文件名类似 SnowLuma-v2.x.x-win-x64.zip（不带 lite）。'),
               h('div', { style: { marginTop: 6 } }, h(Btn, { small: true, onClick: () => window.open(sl.downloadPage, '_blank') }, '打开下载页 ↗')))),
             h('div', { className: cx('ab-step', sl.installed && 'done') }, h('div', null, h('b', null, '解压到纯英文目录'), h('div', { className: 'ab-muted ab-small' }, '推荐 C:\\Aurabot\\snowluma，解压后目录里能直接看到 index.mjs。'),
               h('div', { className: 'ab-flex', style: { marginTop: 6 } }, f.text('snowluma.dir', { size: 'wide', placeholder: 'C:\\Aurabot\\snowluma' }), h(Btn, { small: true, onClick: async () => { await save(draft); reload() } }, '检查')),
               h('div', { className: 'ab-small', style: { marginTop: 4, color: sl.installed ? 'var(--ab-ok)' : 'var(--ab-warn)' } }, sl.installed ? '✓ 找到了 SnowLuma v' + sl.version : sl.reason))))),
-        // 2. 启动 + 协议
+        // 2. 启动 + 协议（接自己的 OneBot 时不用）
+        external ? h('div', null, h('p', { className: 'ab-desc' }, '用的是你自己的 OneBot 服务，这一步不用做，直接下一步。')) :
         h('div', null,
           h('p', { className: 'ab-desc' }, '点启动后它在后台运行（不弹窗口），控制台密码由插件自动生成和保存，你不用记。'),
           h('div', { className: 'ab-flex', style: { marginBottom: 10 } },
@@ -1781,7 +2458,11 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
           h(Agreement, { running: sl.running, toast, onChange: reload })),
         // 3. 接入
         h('div', null,
+          external ? h('p', { className: 'ab-desc' }, '确认你的 OneBot 服务登录的是机器人号 ' + (st.config.botQQ || '') + '，然后点「测试连接」。插件连上后会先核对登录的号，不是机器人号就断开。') :
           h('p', { className: 'ab-desc' }, '在这台电脑上另开一个 QQ，登录机器人号 ' + (st.config.botQQ || '') + '（可以最小化）。你的大号 QQ 照常开着就行——插件只会接入机器人号，绝不碰别的号。'),
+          external ? h('div', { className: 'ab-flex' },
+            h(Btn, { kind: 'primary', small: true, onClick: async () => { const r = await post('/onebot/reconnect'); toast(r.message, r.ok ? 'ok' : 'err'); reload() } }, '连接'),
+            h(Btn, { small: true, onClick: async () => { const r = await get('/onebot/test'); toast(r.message) } }, '测试连接')) :
           h('div', { className: 'ab-flex' },
             h(Btn, { kind: 'primary', small: true, onClick: async () => { const r = await post('/snowluma/attach'); toast(r.message); setTimeout(reload, 1500) } }, '接入机器人号'),
             h(Btn, { small: true, onClick: async () => { const r = await get('/snowluma/processes'); setProcs(r.list || []); if (!r.ok) toast(r.message) } }, '看看有哪些 QQ 进程'),
@@ -1803,6 +2484,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
         h('div', { className: 'ab-flex', style: { marginBottom: 6 } }, h('h3', { style: { margin: 0, fontSize: 16 } }, '设置向导'), h('span', { className: 'ab-muted ab-small' }, '第 ' + (step + 1) + ' / ' + WIZ_STEPS.length + ' 步 · ' + WIZ_STEPS[step]), h('div', { className: 'ab-spacer' }),
           st.config.setupDone && onClose ? h(Btn, { small: true, kind: 'ghost', onClick: onClose }, '关闭向导') : null),
         h('div', { className: 'ab-wiz-bar' }, WIZ_STEPS.map((s, i) => h('button', { key: s, type: 'button', className: cx('seg', i < step && 'done', i === step && 'on'), onClick: () => i <= step && go(i), title: s }, h('span', null, s)))),
+        verified && !st.config.setupDone ? h('div', { className: 'ab-note', style: { marginTop: 12 } }, '机器人号已经连接并核对通过。', ' ', h(Btn, { small: true, onClick: useExisting }, '使用现有连接，进入面板')) : null,
         h('div', { style: { minHeight: 220, marginTop: 14 } }, body),
         h('div', { className: 'ab-flex', style: { marginTop: 16, borderTop: '1px solid var(--ab-line)', paddingTop: 12 } },
           step > 0 ? h(Btn, { kind: 'ghost', onClick: () => go(step - 1) }, '上一步') : null,
@@ -1810,7 +2492,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
           step < WIZ_STEPS.length - 1
             ? h(Btn, { kind: 'primary', disabled: !canNext, onClick: next }, '下一步')
             : h(Btn, { kind: 'primary', onClick: async () => {
-              await save({ ...draft, enabled: true, dryRun: live === 'dry' })
+              if (!(await save({ ...draft, enabled: true, dryRun: live === 'dry' }))) return
               const r = await post('/setup/done'); toast(r.message, r.ok ? 'ok' : 'err')
               if (r.ok) { try { localStorage.removeItem('aurabot.wiz') } catch (e) {} reload(); onClose && onClose() }
             } }, '完成，让大肥鱼上线')))
@@ -1861,11 +2543,12 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       const save = async (override) => {
         const body = override || draft
         const r = await post('/save', body)
-        if (r.ok === false) { toast(r.message || '保存失败', 'err'); return }
+        if (r.ok === false) { toast(r.message || '保存失败', 'err'); return false }
         dirtyRef.current = false
         setSt(r)
         setDraft(clone(r.config))
         toast(r.message || '保存好了', 'ok')
+        return true
       }
       saveRef.current = save
       // 右上角的开关立刻生效；有没保存的改动时连同改动一起保存，不会把它们冲掉
@@ -1905,10 +2588,10 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       const curTab = tabs.find((t) => t.id === tab) || tabs[0]
       const body = curTab.ext ? ExtPage : {
         overview: Overview, connect: Connect, persona: Persona, access: Access, group: Group, model: Model, voice: Voice,
-        stickers: Stickers, imagegen: ImageGen, diary: Diary, speakup: SpeakUp, mood: Mood, song: Song, bili: Bili, local: LocalApi, modules: Modules, logs: Logs,
+        stickers: Stickers, imagegen: ImageGen, diary: Diary, speakup: SpeakUp, mood: Mood, song: Song, bili: Bili, douyin: Douyin, local: LocalApi, modules: Modules, logs: Logs,
       }[curTab.id] || Overview
       // 哪些标签有没保存的改动
-      const TAB_KEYS = { connect: ['snowluma', 'botQQ'], access: ['ownerQQ', 'ownerName', 'ownerLevel', 'allow'], group: ['group', 'merge'], model: ['model'], voice: ['voice'], stickers: ['stickers'], imagegen: ['imageGen'], diary: ['diary', 'qzoneSocial'], speakup: ['speakUp'], mood: ['mood', 'memory'], song: ['song'], bili: ['bili'], local: ['local'] }
+      const TAB_KEYS = { connect: ['snowluma', 'botQQ'], access: ['ownerQQ', 'ownerName', 'ownerLevel', 'longTasks', 'profilePerms', 'allow'], group: ['group', 'merge'], model: ['model', 'chatModels'], voice: ['voice'], stickers: ['stickers'], imagegen: ['imageGen'], diary: ['diary', 'qzoneSocial'], speakup: ['speakUp'], mood: ['mood', 'memory'], song: ['song'], bili: ['bili'], douyin: ['douyin'], local: ['local'] }
       const tabDirty = (id) => {
         if (!dirty) return false
         if (id.startsWith('ext:')) { const k = id.slice(4); return JSON.stringify((draft.ext || {})[k]) !== JSON.stringify((cfg.ext || {})[k]) }
@@ -1929,12 +2612,15 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
               h('div', { className: 'ab-switch-row' }, h('span', null, '总开关'), h(Switch, { on: cfg.enabled, onChange: (v) => quickToggle('enabled', v) })),
               h('div', { className: 'ab-switch-row' }, h('span', { className: 'ab-muted' }, '试运行'), h(Switch, { on: cfg.dryRun, onChange: (v) => quickToggle('dryRun', v), title: '开着时只写日志，不真的发到 QQ' })))),
           showWizard ? h(Wizard, { st, draft, setDraft: setD, save, toast, reload, onClose: () => setWizardOpen(false) }) : null,
-          showWizard ? null : h('div', { className: 'ab-tabs', role: 'tablist', ref: tabsRef }, tabs.map((t) => {
-            const flag = t.flag === 'group' ? cfg.allow.groups.length > 0 : t.flag ? getPath(cfg, t.flag) : null
-            return h('button', { key: t.id, type: 'button', role: 'tab', 'aria-selected': curTab.id === t.id, className: cx('ab-tab', curTab.id === t.id && 'on'), onClick: () => go(t.id) },
-              t.label,
-              tabDirty(t.id) ? h('i', { className: 'dirty', title: '有没保存的改动' }) : t.flag ? h('i', { className: cx('ab-dot', flag && 'ok'), title: flag ? '开着' : '关着' }) : null)
-          })),
+          showWizard ? null : h(NavBar, {
+            tabs, cur: curTab, go, dirtyOf: tabDirty, subRef: tabsRef,
+            mark: (t) => {
+              if (tabDirty(t.id)) return h('i', { className: 'dirty', title: '有没保存的改动' })
+              if (!t.flag) return null
+              const flag = t.flag === 'group' ? cfg.allow.groups.length > 0 : getPath(cfg, t.flag)
+              return h('i', { className: cx('ab-dot', flag && 'ok'), title: flag ? '开着' : '关着' })
+            },
+          }),
           showWizard ? null : h(TabBoundary, { key: curTab.id, onHome: () => go('overview') }, h(body, { ...props, mod: curTab.ext })),
           showWizard || curTab.ext ? null : mods.filter((m) => hasUi(m) && m.tab === curTab.id).map((m) => h('div', { key: 'embed-' + m.id, style: { marginTop: 14 } }, h(ExtPage, { ...props, mod: m.id, embedded: true }))),
           dirty && !showWizard ? h('div', { className: 'ab-savebar' }, h('span', { className: 'msg' }, '有改动还没保存'),

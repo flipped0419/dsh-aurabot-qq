@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { dataDir, readJson, writeJson } from '../core/store.js'
 import { imageSize, mimeOf, stickerSizeOk } from '../chat/inbound.js'
 import { segmentBytes, fetchImage } from '../core/net.js'
-import { askModel } from '../core/llm.js'
+import { askModel, canSeeImages } from '../core/llm.js'
 
 const dir = () => dataDir('stickers')
 const indexFile = () => join(dir(), 'index.json')
@@ -79,6 +79,11 @@ export function createStickerStore({ dsh, getConfig, onebot, log }) {
 
   async function caption(buf, mime, hint) {
     try {
+      // 模型看不了图就别硬发：会报错，名字也起不出来
+      if ((await canSeeImages(dsh, getConfig())) === false) {
+        log.debug('模型不支持看图，跳过表情起名')
+        return { name: '', tags: [] }
+      }
       const text = await askModel(dsh, {
         cfg: getConfig(),
         system: '你给表情包起名字。只输出一行：不超过 12 个字的中文备注，描述这个表情表达的情绪或内容（例如「委屈巴巴的小猫」「得意地叉腰」）。然后空格，再写 1~3 个标签，从这些里挑：' + DEFAULT_TAGS.join('、') + '。格式：备注 #标签1 #标签2',
@@ -123,6 +128,9 @@ export function createStickerStore({ dsh, getConfig, onebot, log }) {
     const file = `collected-${md5}.${ext(mime)}`
     writeFileSync(join(dir(), file), buf)
     const item = { md5, file, name: '', tags: [], from, at: now, width, height, bytes: buf.length, emojiId: '', summary: String(d.summary || '').replace(/[[\]]/g, '') }
+    // 商城表情（QQ 表情商店里的）：存下来的只是一张预览图，原样发回去才会按商城表情播放动画（#31）
+    const marketId = String(d.emoji_id ?? d.emojiId ?? '').trim()
+    if (marketId) item.market = { emojiId: marketId, packageId: Number(d.emoji_package_id ?? d.emojiPackageId ?? 0) || 0, key: String(d.key ?? '') }
     recent.push(now)
     // 收藏到 QQ
     if (!getConfig().dryRun) {
@@ -222,15 +230,16 @@ export function createStickerStore({ dsh, getConfig, onebot, log }) {
     const lib = loadLibrary()
     const it = lib.items.find((i) => i.md5 === md5)
     if (!it) return { ok: false }
-    if (name !== undefined) it.name = String(name).slice(0, 12)
-    if (tags !== undefined) it.tags = tags
+    if (name !== undefined) it.name = String(name).trim().slice(0, 12)
+    if (tags !== undefined) it.tags = [...new Set((Array.isArray(tags) ? tags : []).map((t) => String(t).replace(/^#/, '').trim().slice(0, 8)).filter(Boolean))].slice(0, 5)
     saveLibrary(lib)
     if (it.emojiId && !getConfig().dryRun) onebot.call('modify_custom_face', { emoji_id: it.emojiId, desc: it.name }).catch(() => {})
     return { ok: true, item: it }
   }
 
-  /** 发表情用的消息段：本地图片按表情（sub_type=1）发。 */
+  /** 发表情用的消息段：商城表情按商城表情原样发（带 emoji_id，网关会认回成 mface）；其余本地图片按表情（sub_type=1）发。 */
   function segmentFor(item) {
+    if (item.market?.emojiId) return { type: 'image', data: { emoji_id: item.market.emojiId, emoji_package_id: item.market.packageId, key: item.market.key, summary: `[${item.name || '表情'}]` } }
     const p = stickerPath(item)
     if (!existsSync(p)) return null
     return { type: 'image', data: { file: 'base64://' + readFileSync(p).toString('base64'), sub_type: 1, summary: `[${item.name || '表情'}]` } }

@@ -18,10 +18,10 @@ import { createLogger } from './core/logger.js'
 import { registerSecret, redact } from './core/redact.js'
 import { createOneBotClient } from './onebot/client.js'
 import { createSnowLumaManager, DOWNLOAD_PAGE } from './snowluma/manager.js'
-import { createHub, WORKSPACE_DIR } from './chat/hub.js'
+import { createHub, workspaceDirOf } from './chat/hub.js'
 import { createLocal, fileOf, toImageBuffer } from './local/local.js'
 import { createGroupRoles } from './chat/group-roles.js'
-import { defaultModel, askModel } from './core/llm.js'
+import { defaultModel, askModel, modelReasoning, modelVision, clearReasoningCache, clearVisionCache } from './core/llm.js'
 import { mimeOf } from './chat/inbound.js'
 import { dataDir, ensureDir } from './core/store.js'
 import { createUpdateChecker, changelogSection } from './core/update.js'
@@ -29,6 +29,7 @@ import { parseCommand, runCommand, createMutes, commandList } from './chat/comma
 import { listPersonas, readPersona, savePersona, deletePersona, currentPersonaText, rulesText, seedPersonas } from './persona/personas.js'
 import { createModules, API_VERSION } from './core/modules.js'
 import { createBridge } from './core/bridge.js'
+import { createDangerGuard } from './security/danger.js'
 import { BUILTINS } from './modules/index.js'
 
 export const name = 'aurabot'
@@ -52,6 +53,11 @@ export function apply(ctx) {
   const setConfig = (next) => {
     const before = cfg
     cfg = saveConfig(next)
+    // 改机器人号后旧连接的核对结果立刻失效，必须重新核对才能处理消息或完成向导。
+    if (before.botQQ !== cfg.botQQ) {
+      wrongAccount = ''
+      if (onebotState === 'connected') onebot.restart()
+    }
     secrets()
     if (bridge && before.bridge.dshTools !== cfg.bridge.dshTools) bridge.refresh()
     if (mods && (JSON.stringify(before.modules) !== JSON.stringify(cfg.modules) || before.safeMode !== cfg.safeMode)) mods.sync().catch(() => {})
@@ -67,7 +73,13 @@ export function apply(ctx) {
   // 扩展模块能整段改写人格和规则（同步：提示词变量不能等）
   const rewrite = (event, text, ...args) => { const r = mods ? mods.filterSync(event, text, ...args) : text; return typeof r === 'string' ? r : r === null ? '' : text }
   variable('aurabot_persona', () => rewrite('persona', currentPersonaText(cfg.persona.current)))
-  variable('aurabot_rules_private', () => rewrite('rules', rulesText('private', cfg, rulesOpts('private')), 'private'))
+  variable('aurabot_rules_private', () => {
+    const base = rewrite('rules', rulesText('private', cfg, rulesOpts('private')), 'private')
+    // 危险命令确认开着时补一句：被拦下要如实告诉主人，别绕着写
+    return base + (cfg.security && cfg.security.dangerConfirm
+      ? '\n【危险命令】终端命令如果被安全策略拦下（删根目录/格式化/关机/下载后直接执行等），把命令原文和原因如实告诉主人，等主人回复「确认」后再重试；不要换一种写法绕过。'
+      : '')
+  })
   variable('aurabot_rules_social', () => rewrite('rules', rulesText('social', cfg, rulesOpts('social')), 'social'))
 
   // ---------- QQ 网关 ----------
@@ -79,7 +91,8 @@ export function apply(ctx) {
   })
   const endpoint = () => {
     const s = cfg.snowluma
-    const auto = s.httpUrl && s.wsUrl ? null : snowluma.endpoint()
+    // 接自己的 OneBot 时只认填的地址；用 SnowLuma 时没填的从它的配置里读
+    const auto = cfg.gateway === 'onebot' || (s.httpUrl && s.wsUrl) ? null : snowluma.endpoint()
     return {
       httpUrl: s.httpUrl || auto?.httpUrl || '',
       wsUrl: s.wsUrl || auto?.wsUrl || '',
@@ -91,27 +104,63 @@ export function apply(ctx) {
   // 连上后先核对登录的是不是机器人号，核对通过前不处理任何消息；不是就断开，不再自动重连
   let loginOk = false
   let wrongAccount = ''
+  // 核对期间收到的事件先攒着：核对通过就补处理，核对失败就丢掉。
+  // 直接丢弃的话，刚连上那几百毫秒里主人发的消息就没了（登录核对要等一次 get_login_info 往返）。
+  let verifying = false
+  let pendingEvents = []
   let hub = null
+  let dangerGuard = null // 危险命令确认（security.dangerConfirm 开着才生效）
   async function checkLogin() {
-    let uin = ''
+    verifying = true
+    pendingEvents = []
     try {
-      const info = await onebot.call('get_login_info', {}, { timeoutMs: 10000 })
-      uin = String(info?.user_id ?? '')
-    } catch (error) {
-      logger.child('onebot').warn('核对登录的 QQ 号失败：', error.message)
+      let uin = ''
+      try {
+        const info = await onebot.call('get_login_info', {}, { timeoutMs: 10000 })
+        uin = String(info?.user_id ?? '')
+      } catch (error) {
+        logger.child('onebot').warn('核对登录的 QQ 号失败：', error.message)
+      }
+      if (onebotState !== 'connected') return
+      if (!uin) {
+        // 核对不了就别用，断开后由看门狗重试
+        onebot.stop()
+        return
+      }
+      if (await snowluma.confirmLogin(uin)) {
+        loginOk = true
+        wrongAccount = ''
+        // 把核对期间攒下的补上（按到达顺序）
+        const queued = pendingEvents
+        pendingEvents = []
+        for (const ev of queued) handleEvent(ev)
+      } else {
+        wrongAccount = uin
+        pendingEvents = []
+        onebot.stop()
+      }
+    } finally {
+      verifying = false
     }
-    if (onebotState !== 'connected') return
-    if (!uin) {
-      // 核对不了就别用，断开后由看门狗重试
-      onebot.stop()
-      return
-    }
-    if (await snowluma.confirmLogin(uin)) {
-      loginOk = true
-      wrongAccount = ''
-    } else {
-      wrongAccount = uin
-      onebot.stop()
+  }
+  /** 核对通过后的事件都在这里处理（onEvent 直接调，核对期间攒下的也会补到这里）。 */
+  function handleEvent(ev) {
+    if (!hub) return
+    // 模块能看到所有原始事件（加群、撤回、好友申请……），只看不拦
+    mods?.emit('onebot', ev)
+    if (ev.post_type === 'message' || ev.post_type === 'message_sent') {
+      if (ev.post_type === 'message') {
+        // 危险命令确认：主人的「确认 / 取消」回复先在这里截住，不交给聊天中枢
+        if (dangerGuard && ev.message_type === 'private') {
+          const text = Array.isArray(ev.message)
+            ? ev.message.filter((seg) => seg && seg.type === 'text').map((seg) => String(seg.data?.text || '')).join('')
+            : ''
+          if (dangerGuard.handleReply(`private:${ev.user_id}`, ev.user_id, text)) return
+        }
+        hub.onMessage(ev).catch((error) => log.error('处理消息出错：', error.message))
+      }
+    } else if (ev.post_type === 'notice' && ev.notice_type === 'notify' && ev.sub_type === 'poke') {
+      hub.onPoke(ev).catch((error) => log.error('处理戳一戳出错：', error.message))
     }
   }
   const onebot = createOneBotClient({
@@ -119,39 +168,50 @@ export function apply(ctx) {
     log: logger.child('onebot'),
     onState: (s, d) => {
       onebotState = s
-      if (s !== 'connected') loginOk = false
+      if (s !== 'connected') { loginOk = false; pendingEvents = [] }
       else checkLogin().catch((error) => log.warn('核对登录号出错：', error.message))
       logger.child('onebot').info(`QQ 网关：${s}${d ? '（' + d + '）' : ''}`)
       mods?.emit('onebot/state', s)
     },
     onEvent: (ev) => {
-      // 还没核对是机器人号：什么都不处理
-      if (!loginOk) return
-      // 模块能看到所有原始事件（加群、撤回、好友申请……），只看不拦
-      mods?.emit('onebot', ev)
-      if (ev.post_type === 'message' || ev.post_type === 'message_sent') {
-        if (ev.post_type === 'message') hub.onMessage(ev).catch((error) => log.error('处理消息出错：', error.message))
-      } else if (ev.post_type === 'notice' && ev.notice_type === 'notify' && ev.sub_type === 'poke') {
-        hub.onPoke(ev).catch((error) => log.error('处理戳一戳出错：', error.message))
+      // 还没核对是机器人号：核对期间先攒着，核对通过后补处理
+      if (!loginOk) {
+        if (verifying) {
+          pendingEvents.push(ev)
+          if (pendingEvents.length > 200) pendingEvents.shift()
+        }
+        return
       }
+      handleEvent(ev)
     },
   })
   const groupRoles = createGroupRoles({ onebot, getConfig, log: logger.child('chat') })
   const local = createLocal({ getConfig, log: logger })
   const mutes = createMutes()
 
-  /** DSH 里能用的所有模型：[{provider, model, name}] */
+  /**
+   * DSH 里能用的所有模型：[{provider, model, name, reasoning}]。
+   * reasoning 是 {efforts:[...], default} 或 null（null = 这个模型不支持思考强度，
+   * 面板据此把「思考强度」置灰，免得选了之后整轮报错）。
+   */
   async function listModels() {
     const llm = ctx.llm || ctx.get('llm')
     const out = []
     for (const p of llm.listProviders() || []) {
       const provider = typeof p === 'string' ? p : p.provider || p.id || p.name
       try {
-        for (const m of (await llm.listModels(provider)) || []) out.push({ provider, model: m.id || m.model, name: m.name || m.id || m.model })
+        for (const m of (await llm.listModels(provider)) || []) {
+          const model = m.id || m.model
+          out.push({ provider, model, name: m.name || model, reasoning: await modelReasoning(ctx, provider, model), vision: await modelVision(ctx, provider, model) })
+        }
       } catch (error) {}
     }
+    if (out.length) modelCache = out
     return out
   }
+  // 最近一次查到的模型列表：按聊天选的模型已经不在 DSH 里了，就退回下一级（同步取，hub 每条消息都要用）
+  let modelCache = null
+  setTimeout(() => { listModels().catch(() => {}) }, 3000).unref?.()
 
   // 聊天中枢找表情库、语音时，找的是当时在跑的那个模块；模块关着就当没有
   const use = (id) => mods?.use(id) || null
@@ -193,6 +253,9 @@ export function apply(ctx) {
     },
     isMuted: (chatId) => mutes.muted(chatId),
     moodEffects: () => use('mood')?.effects?.() ?? null,
+    availableModels: () => modelCache,
+    // 模块（重）启动代际：模块热重载后工具名没变、但实例换了，hub 要据此重挂工具（issue #73）
+    toolsGeneration: () => (mods ? mods.generation?.() || 0 : 0),
     hooks: {
       message: (msg) => mods.claim('message', msg),
       reply: (text, info) => mods.filter('reply', text, info),
@@ -271,6 +334,21 @@ export function apply(ctx) {
   bridge = createBridge({ ctx, getConfig, setConfig, hub, mods, log: logger.child('bridge'), version: VERSION, apiVersion: API_VERSION, overview: () => overview() })
   core.bridge = bridge
   core.modules = mods
+  // 危险命令确认（可选保护）：DSH 在真正执行终端工具前会走 tools/pre-execute；
+  // 这里只拦 bash / pwsh 的危险命令，其它工具和普通命令原样放行。
+  dangerGuard = createDangerGuard({
+    getConfig,
+    log: logger.child('危险命令'),
+    deliver: (chatId, text) => hub.sendText(chatId, text),
+    chatOfSession: (sessionId) => { try { return hub.chatOfSession?.(sessionId) || '' } catch (error) { return '' } },
+    ownerQQ: () => cfg.ownerQQ,
+  })
+  core.dangerGuard = dangerGuard
+  ctx.effect(() => {
+    let off = null
+    try { off = ctx.on('tools/pre-execute', (exec, next) => dangerGuard.preExecute(exec, next)) } catch (error) { log.debug('挂危险命令确认失败：', error.message) }
+    return () => { try { if (typeof off === 'function') off() } catch (error) {} }
+  }, 'aurabot: 危险命令确认')
   const booted = mods.boot()
   booted.then(() => bridge.refresh())
 
@@ -292,15 +370,16 @@ export function apply(ctx) {
       if (onebot.state !== 'stopped') onebot.stop()
       return
     }
+    const own = cfg.gateway === 'snowluma' // 接别人的 OneBot 时不启动、不注入 SnowLuma
     const inst = snowluma.detect()
-    if (inst.installed && cfg.snowluma.autoStart && !(await snowluma.running())) {
+    if (own && inst.installed && cfg.snowluma.autoStart && !(await snowluma.running())) {
       const r = await snowluma.start()
       log.info('SnowLuma：', r.message)
     }
     // 上次连上的不是机器人号：等主人手动点「接入机器人号」或改设置再连
     if (wrongAccount) return
     if (onebot.state === 'stopped') onebot.start()
-    if (cfg.snowluma.autoAttach && cfg.snowluma.webuiPassword && onebotState !== 'connected' && (await snowluma.running())) {
+    if (own && cfg.snowluma.autoAttach && cfg.snowluma.webuiPassword && onebotState !== 'connected' && (await snowluma.running())) {
       const last = snowluma.lastAttach
       if (Date.now() - last.at > 60_000) {
         const r = await snowluma.attachBot()
@@ -312,6 +391,7 @@ export function apply(ctx) {
   ctx.effect(() => ctx.interval(safe(watchdog, '看门狗'), 30_000), 'aurabot: 看门狗')
   setTimeout(safe(watchdog, '看门狗'), 3000).unref?.()
   ctx.effect(() => () => {
+    hub.disposeRecentMedia()
     mods.dispose()
     onebot.stop()
     snowluma.dispose()
@@ -360,7 +440,7 @@ export function apply(ctx) {
       voice: { edgeInstalled: use('voice')?.edgeInstalled?.() ?? false },
       song: use('song')?.status?.() ?? null,
       sessions: hub.sessions(),
-      workspaceDir: WORKSPACE_DIR,
+      workspaceDir: workspaceDirOf(cfg),
       personas: listPersonas(),
       modules: mods.status(),
       bridge: { dshTools: cfg.bridge.dshTools, http: cfg.bridge.http, hasToken: Boolean(cfg.bridge.token), tools: bridge.deniedTools(), toolsService: Boolean(ctx.get?.('tools')) },
@@ -378,7 +458,10 @@ export function apply(ctx) {
     setConfig(mergeFromPanel(cfg, body))
     let pw = null
     if (newPw && newPw !== before.snowluma.webuiPassword) pw = await snowluma.setPassword(newPw)
-    const changedConn = ['httpUrl', 'wsUrl', 'httpToken', 'wsToken', 'dir'].some((k) => before.snowluma[k] !== cfg.snowluma[k])
+    const changedConn = before.gateway !== cfg.gateway || ['httpUrl', 'wsUrl', 'httpToken', 'wsToken', 'dir'].some((k) => before.snowluma[k] !== cfg.snowluma[k])
+    // 换了模型：思考强度和「能不能看图」的探测结果都得重来，不然要等 10 分钟缓存过期
+    const changedModel = before.model.provider !== cfg.model.provider || before.model.model !== cfg.model.model
+    if (changedModel) { clearReasoningCache(); clearVisionCache() }
     if (changedConn || before.botQQ !== cfg.botQQ) wrongAccount = ''
     if (changedConn && onebot.state !== 'stopped') onebot.restart()
     if (!before.enabled && cfg.enabled) setTimeout(safe(watchdog, '看门狗'), 100)
@@ -427,8 +510,10 @@ export function apply(ctx) {
   // 控制台密码：看一眼（打开 SnowLuma 自己的控制台要用）、自己设一个
   route('/snowluma/password', async () => ({ ok: true, password: snowluma.password(), auto: cfg.snowluma.passwordAuto }))
   route('/snowluma/set-password', async (req) => snowluma.setPassword(String((await readBody(req)).password || '')))
-  route('/setup/done', async () => {
-    if (!cfg.botQQ || !cfg.ownerQQ) return { ok: false, message: '先填好机器人 QQ 和你的 QQ' }
+  route('/setup/done', async (req) => {
+    const body = await readBody(req)
+    if (!cfg.botQQ || !cfg.ownerQQ || cfg.botQQ === cfg.ownerQQ) return { ok: false, message: '先填好不同的机器人 QQ 和你的 QQ' }
+    if (body.existingConnection && !(cfg.enabled && onebotState === 'connected' && loginOk)) return { ok: false, message: 'QQ 网关还没通过机器人号核对，请先连接并核对后再进入面板' }
     setConfig({ ...cfg, setupDone: true })
     log.info('首次使用向导完成')
     return { ...(await overview()), message: '设置完成，大肥鱼可以上线啦' }
@@ -440,6 +525,12 @@ export function apply(ctx) {
   async function connectionProblem() {
     if (!cfg.enabled) return '总开关关着（右上角），打开后才会连'
     if (!cfg.botQQ) return '还没填机器人 QQ 号'
+    if (cfg.gateway === 'onebot') {
+      const ep = endpoint()
+      if (!ep.wsUrl) return '还没填 OneBot 的 WebSocket 地址：在「连接」页填你的 OneBot v11 正向 WebSocket 地址（收消息要靠它；HTTP 可以不填）'
+      if (wrongAccount) return `连上的是 ${wrongAccount}，不是机器人号 ${cfg.botQQ}，已经断开：让你的 OneBot 服务登录机器人号，再点「重新连接」`
+      return `连 ${ep.wsUrl || ep.httpUrl} 没连上：确认你的 OneBot 服务开着、地址和 token 填对了（Docker 里的话，地址要用 DSH 能访问到的主机名 / 端口）`
+    }
     const inst = snowluma.detect()
     if (!inst.installed && !(cfg.snowluma.wsUrl || cfg.snowluma.httpUrl)) return 'SnowLuma 没装好：' + inst.reason
     if (inst.installed && !(await snowluma.running())) return 'SnowLuma 没在运行：点上面的「启动」'
@@ -504,6 +595,31 @@ export function apply(ctx) {
     setConfig({ ...cfg, persona: { current: b.id } })
     log.info(`切换人格 → ${b.id}`)
     return { ok: true, current: b.id, message: '切换好了，下一轮回复起生效' }
+  })
+  // 人格页「AI 润色」：只改面板上这一节的文字，不保存；用不用由主人在面板里选
+  route('/persona/polish', async (req) => {
+    const b = await readBody(req)
+    const title = String(b.title || '').slice(0, 30) || '开场（她是谁）'
+    const text = String(b.text || '').slice(0, 4000)
+    const others = (Array.isArray(b.others) ? b.others : []).map((x) => String(x).slice(0, 30)).slice(0, 20)
+    const system = '你在帮人改一个 QQ 聊天角色的人设。人设按【标题】分节，你一次只改其中一节。' +
+      '只输出这一节改好后的正文：不要写标题，不要加粗、不要 Markdown 标题，不要任何解释。原来是「- 」开头的条目就继续用条目，一条一行、短句。'
+    const ask = [
+      `角色：${String(b.name || '她').slice(0, 30)}`,
+      `要改的这一节：${title}`,
+      `人设里另外几节：${others.join('、') || '无'}（只是让你知道还有哪些，别把它们的内容写进这一节）`,
+      text.trim()
+        ? '要求：保留原来的设定和事实，不编新的身份信息；说得更具体、更像真人；删掉重复和空话；长度别超过原来的 1.5 倍。'
+        : '要求：这一节还是空的，按这个角色和这一节的标题写 4 到 8 条。',
+      text.trim() ? `原文：\n${text}` : '',
+    ].filter(Boolean).join('\n')
+    try {
+      const out = String(await askModel(ctx, { cfg: getConfig(), system, text: ask, maxTokens: 1500, temperature: 0.6 }) || '')
+        .replace(/^```[a-z]*\n?|\n?```$/g, '').replace(new RegExp('^【' + title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '】\\s*'), '').trim()
+      return out ? { ok: true, text: out } : { ok: false, message: '模型没给出内容，再试一次' }
+    } catch (error) {
+      return { ok: false, message: '润色没成功：' + error.message }
+    }
   })
 
   // 本地接口
@@ -639,8 +755,9 @@ export function apply(ctx) {
   open('/events', async (req) => bridge.ops.events(query(req)))
 
   // 模型：列出 DSH 里可用的模型，测一下哪个回得快
-  route('/models', async () => {
+  route('/models', async (req) => {
     try {
+      if (new URL(req.url, 'http://x').searchParams.get('refresh') === '1') { clearReasoningCache(); clearVisionCache() }
       return { ok: true, list: await listModels() }
     } catch (error) {
       return { ok: false, message: error.message, list: [] }
@@ -696,7 +813,7 @@ export function apply(ctx) {
     }
   })
 
-  log.info(`Aurabot v${VERSION} 已加载｜总开关 ${cfg.enabled ? '开' : '关'}｜试运行 ${cfg.dryRun ? '开' : '关'}｜工作区 ${WORKSPACE_DIR}`)
+  log.info(`Aurabot v${VERSION} 已加载｜总开关 ${cfg.enabled ? '开' : '关'}｜试运行 ${cfg.dryRun ? '开' : '关'}｜工作区 ${workspaceDirOf(cfg)}`)
 
   return {
     hub, onebot, snowluma, getConfig, setConfig, logger, modules: mods, bridge, ready: booted,

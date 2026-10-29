@@ -41,18 +41,27 @@ function decodeFrames(buf) {
   return { frames: out, rest: buf.subarray(i) }
 }
 
-export async function startMockOneBot({ selfId = '20000002', token = 'mock-token-abcdef' } = {}) {
+export async function startMockOneBot({ selfId = '20000002', token = 'mock-token-abcdef', loginDelayMs = 0 } = {}) {
+  // loginDelayMs：让 get_login_info 慢一点回，用来测「核对期间的消息不该丢」
+  const waitLogin = async (action) => { if (action === 'get_login_info' && loginDelayMs) await new Promise((r) => setTimeout(r, loginDelayMs)) }
   const calls = []
   const sockets = new Set()
   let msgSeq = 1000
   const faces = new Map()
   const qzone = new Map()
-  const state = { failRecord: false, roles: {}, favorites: [] } // favorites：机器人号 QQ 收藏表情的地址 // roles: 群号 → 机器人在群里的身份（默认群主）
+  const state = { failRecord: false, failUploadPath: false, failQzoneImage: false, roles: {}, favorites: [], selfProfile: { nickname: '大肥鱼', long_nick: '爱吃白米饭' } } // favorites：机器人号 QQ 收藏表情的地址 // roles: 群号 → 机器人在群里的身份（默认群主）
 
   function handle(action, params) {
-    calls.push({ action, params, t: Date.now() })
     switch (action) {
-      case 'get_login_info': return { user_id: Number(selfId), nickname: '大肥鱼' }
+      case 'get_login_info': return { user_id: Number(selfId), nickname: state.selfProfile.nickname }
+      case 'set_qq_profile': state.selfProfile.nickname = params.nickname; return null
+      case 'set_self_longnick': state.selfProfile.long_nick = params.longNick; return null
+      case 'upload_private_file':
+      case 'upload_group_file':
+        if (!params.file) throw new Error('file 不能空')
+        // 模拟「网关在另一台机器上，看不到本机路径」：只认 base64，路径直接报错（用来测自动改走 base64）
+        if (state.failUploadPath && !String(params.file).startsWith('base64://')) throw new Error('file not found: ' + params.file)
+        return { file_id: 'file-' + ++msgSeq, file_name: params.name || '' }
       case 'send_private_msg':
       case 'send_group_msg':
         if (state.failRecord && params.message?.[0]?.type === 'record') throw new Error('record not supported')
@@ -69,6 +78,8 @@ export async function startMockOneBot({ selfId = '20000002', token = 'mock-token
       case 'modify_custom_face': faces.set(params.emoji_id, params.desc); return null
       case 'delete_custom_face': faces.delete(params.emoji_id); return null
       case 'send_qzone_msg': {
+        // 模拟空间不认配图（图太大 / 格式不对）：带图发说说直接失败，用来测「退回只发文字」
+        if (state.failQzoneImage && params.images && params.images.length) throw new Error('第 1 张图片上传失败: 上传图片失败:响应缺少必要字段')
         const tid = 'tid-' + (qzone.size + 1)
         qzone.set(tid, params)
         return { tid }
@@ -81,7 +92,9 @@ export async function startMockOneBot({ selfId = '20000002', token = 'mock-token
       case 'get_forward_msg': return { messages: (state.forwards || {})[params.id] || [] }
       case 'send_poke': return null
       case 'get_group_msg_history': case 'get_friend_msg_history': return { messages: state.history || [] }
-      case 'get_stranger_info': return { user_id: params.user_id, nickname: '路人' + params.user_id }
+      case 'get_stranger_info': return String(params.user_id) === String(selfId)
+        ? { user_id: Number(selfId), ...state.selfProfile }
+        : { user_id: params.user_id, nickname: '路人' + params.user_id }
       case 'fetch_ptt_text': return { text: '今天想吃白米饭' }
       case 'set_group_ban': case 'set_group_kick': case 'set_group_special_title': case '_send_group_notice': return null
       default: return null
@@ -96,9 +109,12 @@ export async function startMockOneBot({ selfId = '20000002', token = 'mock-token
       return res.end(JSON.stringify({ status: 'failed', retcode: 1403 }))
     }
     const action = req.url.replace(/^\/+/, '').split('?')[0]
+    const params = JSON.parse(body || '{}')
     res.setHeader('content-type', 'application/json')
     try {
-      const data = handle(action, JSON.parse(body || '{}'))
+      calls.push({ action, params, t: Date.now() }) // 记「收到请求」的时间，不是延迟之后
+      await waitLogin(action)
+      const data = handle(action, params)
       res.end(JSON.stringify({ status: 'ok', retcode: 0, data }))
     } catch (error) {
       res.end(JSON.stringify({ status: 'failed', retcode: 100, message: error.message }))
@@ -115,7 +131,7 @@ export async function startMockOneBot({ selfId = '20000002', token = 'mock-token
       `Sec-WebSocket-Accept: ${wsAccept(req.headers['sec-websocket-key'])}\r\n\r\n`)
     sockets.add(socket)
     let pending = Buffer.alloc(0)
-    socket.on('data', (d) => {
+    socket.on('data', async (d) => {
       pending = Buffer.concat([pending, d])
       const { frames, rest } = decodeFrames(pending)
       pending = rest
@@ -123,6 +139,8 @@ export async function startMockOneBot({ selfId = '20000002', token = 'mock-token
         if (f.op === 8) { socket.end(); return }
         if (f.op !== 1) continue
         const m = JSON.parse(f.data.toString('utf8'))
+        calls.push({ action: m.action, params: m.params || {}, t: Date.now() })
+        await waitLogin(m.action)
         const data = handle(m.action, m.params || {})
         socket.write(encodeFrame(JSON.stringify({ status: 'ok', retcode: 0, data, echo: m.echo })))
       }
