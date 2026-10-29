@@ -30,6 +30,7 @@ import { listPersonas, readPersona, savePersona, deletePersona, currentPersonaTe
 import { createModules, API_VERSION } from './core/modules.js'
 import { createBridge } from './core/bridge.js'
 import { createDangerGuard } from './security/danger.js'
+import { createQQApprovalBridge } from './security/qq-approval.js'
 import { BUILTINS } from './modules/index.js'
 
 export const name = 'aurabot'
@@ -61,6 +62,7 @@ export function apply(ctx) {
     secrets()
     if (bridge && before.bridge.dshTools !== cfg.bridge.dshTools) bridge.refresh()
     if (mods && (JSON.stringify(before.modules) !== JSON.stringify(cfg.modules) || before.safeMode !== cfg.safeMode)) mods.sync().catch(() => {})
+    if (qqApproval && (before.security?.qqApproval !== cfg.security?.qqApproval || before.ownerQQ !== cfg.ownerQQ)) qqApproval.cancelAll()
     mods?.emit('config', cfg, before)
     return cfg
   }
@@ -110,6 +112,7 @@ export function apply(ctx) {
   let pendingEvents = []
   let hub = null
   let dangerGuard = null // 危险命令确认（security.dangerConfirm 开着才生效）
+  let qqApproval = null // DSH 原生审批在 QQ 私聊回复（默认关闭）
   async function checkLogin() {
     verifying = true
     pendingEvents = []
@@ -150,6 +153,14 @@ export function apply(ctx) {
     mods?.emit('onebot', ev)
     if (ev.post_type === 'message' || ev.post_type === 'message_sent') {
       if (ev.post_type === 'message') {
+        // DSH 原生审批优先识别带随机编号的「批准 / 拒绝」；
+        // 不进入普通聊天，也不与危险命令的「确认 / 取消」冲突。
+        if (qqApproval && ev.message_type === 'private') {
+          const text = Array.isArray(ev.message)
+            ? ev.message.filter((seg) => seg && seg.type === 'text').map((seg) => String(seg.data?.text || '')).join('')
+            : ''
+          if (qqApproval.handleReply(`private:${ev.user_id}`, ev.user_id, text)) return
+        }
         // 危险命令确认：主人的「确认 / 取消」回复先在这里截住，不交给聊天中枢
         if (dangerGuard && ev.message_type === 'private') {
           const text = Array.isArray(ev.message)
@@ -168,7 +179,7 @@ export function apply(ctx) {
     log: logger.child('onebot'),
     onState: (s, d) => {
       onebotState = s
-      if (s !== 'connected') { loginOk = false; pendingEvents = [] }
+      if (s !== 'connected') { loginOk = false; pendingEvents = []; qqApproval?.cancelAll() }
       else checkLogin().catch((error) => log.warn('核对登录号出错：', error.message))
       logger.child('onebot').info(`QQ 网关：${s}${d ? '（' + d + '）' : ''}`)
       mods?.emit('onebot/state', s)
@@ -343,6 +354,19 @@ export function apply(ctx) {
     chatOfSession: (sessionId) => { try { return hub.chatOfSession?.(sessionId) || '' } catch (error) { return '' } },
     ownerQQ: () => cfg.ownerQQ,
   })
+  qqApproval = createQQApprovalBridge({
+    getConfig,
+    ownerQQ: () => cfg.ownerQQ,
+    chatOfSession: (sessionId) => hub.chatOfSession(sessionId),
+    deliver: (chatId, text) => hub.sendText(chatId, text),
+    isConnected: () => onebotState === 'connected' && loginOk,
+    log: logger.child('QQ 原生审批'),
+  })
+  core.qqApproval = qqApproval
+  ctx.effect(() => {
+    const off = ctx.on('approval/request', (req, next) => qqApproval.request(req, next), { prepend: true })
+    return () => { if (typeof off === 'function') off(); qqApproval.dispose() }
+  }, 'aurabot: QQ 原生审批')
   core.dangerGuard = dangerGuard
   ctx.effect(() => {
     let off = null
@@ -356,6 +380,7 @@ export function apply(ctx) {
   ctx.effect(() => {
     const off = ctx.on('session/event', (session, event) => {
       try {
+        qqApproval?.observe(session, event)
         hub.onSessionEvent(session, event)
       } catch (error) {
         log.warn('会话事件处理出错：', error.message)
