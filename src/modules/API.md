@@ -116,6 +116,8 @@ export default {
 | `api.sendText(chatId, text)` | 原样发一条文字 |
 | `api.reply(msg, text)` | **回某一条消息**：群里以「引用回复」发出（大家能看出在回谁），私聊直接发 |
 | `api.sendImage(chatId, 图片路径或网址)` | 发图 |
+| `api.sendFile(chatId, 文件路径或网址, 文件名?)` | 把文件（文档、压缩包、音频、视频……）当文件发过去。要先在面板「聊天」页打开「发文件」；本机文件给**绝对路径**，而且只能在 QQ 工作区或主人在面板里加的目录里；单个文件有大小上限（默认 50 MB）。网关在别的机器 / 容器里看不到本机路径时，小文件会自动改用 base64 再试一次 |
+| `api.sendVoiceFile(chatId, 音频文件, 日志备注?)` | 把本机一个音频文件当语音条发出去（不走「念文字」） |
 | `api.sendSegments(chatId, [OneBot 消息段], 日志备注)` | 发任意 OneBot 消息段 |
 | `api.onebot(action, params)` | 直接调 OneBot（SnowLuma）的任意 API，比如 `api.onebot('get_group_member_list', { group_id: 123 })` |
 
@@ -196,7 +198,7 @@ export default {
 | `prompt` | `content, { chat, senderId, queryText }` | **交给她的内容**：`[{ type: 'text', text }, { type: 'image', … }]`。可以加背景信息、改格式、去掉图片；返回 `null` 这次不交给她 |
 | `reply/items` | `items, { chatId, text, userText }` | 她的回复**拆好之后**（哪条发语音、配不配表情都已经决定了）：每条 `{ kind: 'text' \| 'voice' \| 'sticker' \| 'poke' \| 'image', value, replyTo }`。可以改顺序、全部变语音、去掉表情、加图片 |
 | `send` | `message, { chatId, note, force }` | **最终发给 QQ 的消息段**（OneBot 格式）。所有发出去的消息都经过这里：她的回复、命令回复、模块发的。加签名、过滤词、抄送到别处都在这里 |
-| `model` | `selection, chat` | **这个聊天用哪个模型**（同步，不能 async）：返回 `{ provider, model, reasoningEffort }`。比如群里用便宜的、私聊用好的。`selection` 是面板选的（没选时是 DSH 默认，拿不到时是 `null`）。换了之后从这个聊天的下一条消息起生效 |
+| `model` | `selection, chat` | **这个聊天用哪个模型**（同步，不能 async）：返回 `{ provider, model, reasoningEffort }`。比如群里用便宜的、私聊用好的。`selection` 是面板选的（没选时是 DSH 默认，拿不到时是 `null`），主人在面板里「按聊天选模型」设过的话，已经按那个聊天算好了；模块在它之后还可以再改。换了之后从这个聊天的下一条消息起生效 |
 | `persona` | `text` | **她的人格**全文（同步）：返回新文字就换掉 |
 | `rules` | `text, kind` | **她的规则**全文（同步，kind 是 `private` / `social`） |
 
@@ -266,7 +268,7 @@ api.tool(({ chat, level, sessionId }) => {
 ## 面板
 
 **自动表单**：写了 `settings`，面板会多一个这个模块的标签页，自动生成设置表单，用户改完点保存。
-定义里写了 `tab: '内置标签页'`（`voice` `stickers` `imagegen` `diary` `speakup` `mood` `song` `bili` `local` `group` `model` `persona` `access` `connect` `overview`），设置和面板就放进那一页的最下面，不单独占一页。比如给翻唱加功能的模块写 `tab: 'song'`。
+定义里写了 `tab: '内置标签页'`（`voice` `stickers` `imagegen` `diary` `speakup` `mood` `song` `bili` `douyin` `local` `group` `model` `persona` `access` `connect` `overview`），设置和面板就放进那一页的最下面，不单独占一页。比如给翻唱加功能的模块写 `tab: 'song'`。
 
 ```js
 settings: [
@@ -308,13 +310,14 @@ return function Panel({ settings, save, toast }) {
 | `voice` | 语音 | `speak(文字) → { file, engine }` |
 | `mood` | 心情 | `state()` `label()` `nudge(变化量, 原因)` `effects()` `contextLine()` |
 | `memory` | 记忆 | `add({ text, about, aboutName, importance, tags, source })` `addEvent({ text, about, tags, importance })` `recall(查询, { about, limit })` `list(查询)` `remove(id)` `update(id, 改动)` `contextFor(chat, sessionId)` `topicScore(文字)` `profiles()` `consolidate()` …… |
-| `qq-tools` | 基础 QQ 工具 | （只有工具：`qq_chat_history`、`qq_send_message`） |
+| `qq-tools` | 基础 QQ 工具 | （只有工具：`qq_chat_history`、`qq_send_message`、`qq_send_file`） |
 | `group-admin` | 群管 | （只有工具：`qq_group_admin`） |
 | `imagegen` | 生图 | `enabled()` `generate(描述) → Buffer` |
 | `diary` | 空间日记 | `writeDiary()` `post(正文, { images, visibility })` `remove(tid)` `history()` `nextTime()` |
 | `qzone-social` | 空间互动 | `run({ force })` `state()` |
 | `speakup` | 主动搭话 | `fire(原因)` `state()` |
 | `bili` | B 站 | `watch(链接)` `comment(链接, 文字)` `run()` `checkReplies()` `account()` `state()` |
+| `douyin` | 刷抖音 | `run` `browse` `watch` `likeVideo` `commentVideo` `confirmOwner` `account` `loginStep` `showWindow` `state`；工具 `douyin_watch` / `douyin_browse` / `douyin_like` / `douyin_comment` |
 | `song` | 翻唱 | `request({ song, pitch, chatId })` `search(关键词)` `status()` `install()` |
 
 聊天中枢需要的时候会去找 `stickers`（发表情、偷表情）、`voice`（发语音）、`mood`（心情影响表情 / 语音频率）、`memory`（群聊插话判断）。

@@ -4,7 +4,7 @@
 
 import { createHash } from 'node:crypto'
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+export const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
 const MIXIN = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52]
 
 /** 把用户粘贴的 Cookie 解析成键值；只认 B 站用得到的几个。 */
@@ -42,6 +42,18 @@ export function findVideoId(text) {
 
 const stripHtml = (s) => String(s || '').replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'")
 
+const FACE_MAX = 2 * 1024 * 1024
+
+/** 有的图床（含 QQ multimedia.nt.qq.com）Content-Type 会给 application/octet-stream，按文件头认一下。 */
+export function sniffImageType(buf) {
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf || [])
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png'
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg'
+  if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif'
+  if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp'
+  return ''
+}
+
 export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
   let wbi = null // { img, sub, at }
   let buvid = ''
@@ -52,10 +64,12 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     return Object.entries(c).map(([k, v]) => `${k}=${v}`).join('; ')
   }
 
-  async function req(url, { method = 'GET', form, timeoutMs = 20000 } = {}) {
+  async function req(url, { method = 'GET', form, multipart, timeoutMs = 20000 } = {}) {
     const headers = { 'user-agent': UA, referer: 'https://www.bilibili.com/', origin: 'https://www.bilibili.com', cookie: cookieHeader() }
     let body
-    if (form) {
+    if (multipart) {
+      body = multipart // FormData：content-type 带 boundary 由 fetch 自己填
+    } else if (form) {
       headers['content-type'] = 'application/x-www-form-urlencoded'
       body = new URLSearchParams(form).toString()
     }
@@ -124,6 +138,25 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     }
   }
 
+  /** DASH / 渐进式音视频流地址，视频流供 ffmpeg 定位抽帧。 */
+  async function playurl({ bvid, aid, cid, qn = 64 }) {
+    await ensureBuvid()
+    // fnval 4048 = DASH + HDR + 4K + 杜比等全要；很多账号 / 视频现在只回 durl（渐进式 MP4），所以两种都带出去。
+    const d = await req(await signed('https://api.bilibili.com/x/player/wbi/playurl', {
+      ...(bvid ? { bvid } : { aid }), cid, qn, fnval: 4048, fnver: 0, fourk: 1,
+    }))
+    const one = (x) => (x ? { id: x.id, width: x.width, height: x.height, codecs: x.codecs || '', bandwidth: x.bandwidth || 0, baseUrl: x.baseUrl || x.base_url || '' } : null)
+    // 没有 DASH 时退回 durl：每段是渐进式 MP4，length 是这一段的毫秒数（按顺序拼起来是全片）。
+    const durl = (d.durl || [])
+      .map((x) => ({ order: Number(x.order) || 0, url: x.url || '', length: Number(x.length) || 0, size: Number(x.size) || 0 }))
+      .filter((x) => x.url)
+    return {
+      video: (d.dash?.video || []).map(one).filter((v) => v && v.baseUrl),
+      audio: (d.dash?.audio || []).map(one).filter((v) => v && v.baseUrl),
+      durl,
+    }
+  }
+
   /** 字幕全文（优先中文；AI 字幕要登录才有）。拿不到返回 ''。 */
   async function subtitle({ bvid, aid, cid }) {
     try {
@@ -162,6 +195,32 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     await req('https://api.bilibili.com/x/web-interface/archive/like', { method: 'POST', form: { aid, like: 1, csrf } })
   }
 
+  /** 改自己的个性签名（B 站上限 70 字）。要登录。 */
+  async function setSign(sign) {
+    const csrf = parseCookie(getCookie()).bili_jct
+    if (!csrf) throw new Error('没登录 B 站（Cookie 里要有 bili_jct）')
+    await req('https://api.bilibili.com/x/member/web/sign/update', { method: 'POST', form: { user_sign: sign, csrf } })
+  }
+
+  /** 换头像：先把图片下载下来（≤2MB，只收图片），再按网页端的方式 multipart 上传。要登录。 */
+  async function setFace(imageUrl) {
+    const csrf = parseCookie(getCookie()).bili_jct
+    if (!csrf) throw new Error('没登录 B 站（Cookie 里要有 bili_jct）')
+    const r = await fetchImpl(imageUrl, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(20000) })
+    if (r.ok === false || (typeof r.status === 'number' && (r.status < 200 || r.status >= 300))) throw new Error('图片下载失败：HTTP ' + r.status)
+    let type = String(r.headers?.get?.('content-type') || '').split(';')[0].trim()
+    const buf = Buffer.from(await r.arrayBuffer())
+    if (!buf.length) throw new Error('图片是空的')
+    if (buf.length > FACE_MAX) throw new Error('图片超过 2MB，B 站不收')
+    if (!/^image\//i.test(type)) type = sniffImageType(buf)
+    if (!type) throw new Error('这个网址不是图片')
+    const fd = new FormData()
+    fd.append('dopost', 'save')
+    fd.append('DisplayRank', '10000')
+    fd.append('face', new Blob([buf], { type }), 'face.' + (type.split('/')[1] || 'jpg').replace(/[^a-z0-9]/gi, ''))
+    await req(`https://api.bilibili.com/x/member/web/face/update?csrf=${encodeURIComponent(csrf)}`, { method: 'POST', multipart: fd, timeoutMs: 30000 })
+  }
+
   /** 别人回复她的消息：[{id, time, name, mid, text, myText, oid, root, parent, title, uri}] */
   async function replyFeed() {
     const d = await req('https://api.bilibili.com/x/msgfeed/reply?platform=web&build=0&mobi_app=web')
@@ -178,5 +237,5 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     return r.headers.get('location') || ''
   }
 
-  return { nav, search, popular, view, subtitle, comments, postComment, likeVideo, replyFeed, resolveShort }
+  return { nav, search, popular, view, playurl, subtitle, comments, postComment, likeVideo, setSign, setFace, replyFeed, resolveShort }
 }

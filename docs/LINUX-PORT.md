@@ -43,3 +43,19 @@
   参见 deploy/linux/compose.yaml、verify-host.sh、README.md。
 - GitHub fork flipped0419/dsh-aurabot-qq 已可被集成读取，
   但集成写入 Git Trees 返回 HTTP 403；当前 Git 提交仍保存在服务器本地。
+
+
+## 2026-10-29：上游 v1.1.16 升级合并（QwenPaw 隔离测试）
+
+- 独立工作树：aurabot-upgrade-1.1.16，分支 upgrade/aurabot-1.1.16；未修改原 linux-port。
+- 上游基线 ce76774（1.1.16），从生产源码 dcc23a9（1.0.4 Linux 移植）合并。
+- 冲突文件：client/client.js、src/core/config.js、src/core/llm.js、src/voice/tts.js、test/e2e.test.js。
+- Linux 默认选择外部 OneBot 网关（原有 1.0.4 配置没有 gateway 字段）；不自动启动或注入 SnowLuma。
+- 保留网关模型 reasoningEffort 留空不传的兼容行为，采用新版模型元数据探测与不支持时重试逻辑。
+- 保留 Linux lib / lib64 下 edge-tts 虚拟环境探测；语音安装优先采用新版跨平台实现。
+- Linux 连接面板保留外部 OneBot 部署提示，其他功能采用新版上游管理界面。
+- 修复新版图库路径校验在 Linux 上接受 Windows 路径分隔符的问题；修正测试中固定 /tmp 文件导致的权限冲突。
+- QwenPaw Node.js 25.6.0 完整测试：420 项，419 通过、0 失败、1 跳过；真实 SnowLuma 与腾讯云生产验收尚未进行。
+- 不能把本分支的通过视为真实 QQ、B 站、抖音或生产 DSH 的完整验收。
+- 生产升级前：备份生产 /opt/aurabot/source Git 提交、DSH Web Profile 以及私有 Aurabot 数据目录；核对 QQ 登录、消息收发、私聊工具权限、B站和 TTS；确认 1.1.16 代码与配置迁移后再切换。
+- QQ Cookie、OneBot Token、模型 API Key、登录态和 SSH 凭据只留在私有运行配置；不写入 Git 仓库或 Google Drive 背景文档。
