@@ -450,7 +450,7 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
       history: history.slice(0, 10),
       message: localSong
         ? (ready ? (cfg().enabled ? '本地换声接口已接管；远程模型由 Worker 配置' : '本地换声接口已准备好，打开翻唱开关即可使用') : '本地换声接口已启用，但 Python、人声分离、FFmpeg 或分离模型尚未就绪')
-        : !voices.length ? '还没有音色：在下面「音色模型」里导入你有权使用的 RVC 模型（.pth 或 zip）' : ready ? (cfg().enabled ? '可以点歌了' : '准备好了，打开开关就能用') : '还差一些组件，点「一键安装」';
+        : !voices.length ? '还没有音色：在下面「音色模型」里导入你有权使用的 RVC 模型（.pth 或 zip）' : ready ? (cfg().enabled ? '可以点歌了' : '准备好了，打开开关就能用') : '还差一些组件，点「一键安装」',
     }
   }
 
