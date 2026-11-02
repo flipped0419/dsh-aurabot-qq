@@ -13,7 +13,7 @@ const README = 'README-本地接口.md'
 export const SLOTS = {
   tts: { file: 'tts.mjs', title: '语音合成', timeoutMs: 60_000, example: 'GPT-SoVITS（http://127.0.0.1:9880，参考音频在 D:/voices/ref.wav）' },
   image: { file: 'image.mjs', title: '生图', timeoutMs: 300_000, example: 'SD WebUI（http://127.0.0.1:7860）或 ComfyUI（http://127.0.0.1:8188）' },
-  song: { file: 'song-convert.mjs', title: '翻唱换声', timeoutMs: 60 * 60_000, example: 'InstaBox 私有 RVC Worker（模型 Fp231.pth；配置保存在 local/rvc-worker.env）' },
+  song: { file: 'song-convert.mjs', title: '翻唱换声', timeoutMs: 65 * 60_000, example: 'InstaBox 私有 RVC Worker（模型 Fp231.pth；配置保存在 local/rvc-worker.env）' },
   asr: { file: 'asr.mjs', title: '语音识别', timeoutMs: 60_000, example: 'FunASR / faster-whisper 的本地服务（http://127.0.0.1:8000）' },
 }
 
