@@ -259,7 +259,7 @@ export function checkRoot(path) {
 /** 在 PATH 中解析可执行文件；Linux 使用系统 ffmpeg，避免强制复制到插件私有目录。 */
 export function findExecutable(name, pathValue = process.env.PATH || '') {
   if (!name) return ''
-  if (isAbsolute(name) || name.includes('/') || name.includes('\\\\')) return existsSync(name) ? name : ''
+  if (isAbsolute(name) || name.includes('/') || name.includes(String.fromCharCode(92))) return existsSync(name) ? name : ''
   for (const dir of String(pathValue).split(delimiter).filter(Boolean)) {
     const candidate = join(dir, name)
     if (existsSync(candidate)) return candidate
