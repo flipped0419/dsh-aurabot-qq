@@ -13,7 +13,7 @@ const README = 'README-本地接口.md'
 export const SLOTS = {
   tts: { file: 'tts.mjs', title: '语音合成', timeoutMs: 60_000, example: 'GPT-SoVITS（http://127.0.0.1:9880，参考音频在 D:/voices/ref.wav）' },
   image: { file: 'image.mjs', title: '生图', timeoutMs: 300_000, example: 'SD WebUI（http://127.0.0.1:7860）或 ComfyUI（http://127.0.0.1:8188）' },
-  song: { file: 'song-convert.mjs', title: '翻唱换声', timeoutMs: 20 * 60_000, example: '我自己训练的 so-vits-svc 模型（项目在 D:/so-vits-svc，模型 logs/44k/G_10000.pth）' },
+  song: { file: 'song-convert.mjs', title: '翻唱换声', timeoutMs: 60 * 60_000, example: 'InstaBox 私有 RVC Worker（模型 Fp231.pth；配置保存在 local/rvc-worker.env）' },
   asr: { file: 'asr.mjs', title: '语音识别', timeoutMs: 60_000, example: 'FunASR / faster-whisper 的本地服务（http://127.0.0.1:8000）' },
 }
 
@@ -46,13 +46,25 @@ export function createLocal({ getConfig, log }) {
     return Boolean(getConfig().local?.[slot]) && existsSync(pathOf(slot))
   }
 
+  async function loadModule(slot) {
+    const file = pathOf(slot)
+    return import(pathToFileURL(file).href + '?v=' + statSync(file).mtimeMs)
+  }
+
+  // 可选的换声身份：用于把远程模型名 / 推理方式纳入翻唱缓存键。
+  async function identity(slot) {
+    const mod = await loadModule(slot)
+    const value = mod.cacheKey ?? mod.identity ?? mod.default?.cacheKey
+    return String(typeof value === 'function' ? await value() : value ?? '')
+  }
+
   async function call(slot, args) {
     const spec = SLOTS[slot]
     const file = pathOf(slot)
     const t = Date.now()
     try {
       // 带上修改时间：脚本改了就重新加载
-      const mod = await import(pathToFileURL(file).href + '?v=' + statSync(file).mtimeMs)
+      const mod = await loadModule(slot)
       const fn = mod.default || mod.run
       if (typeof fn !== 'function') throw new Error(`${spec.file} 里没有 export default 的函数`)
       mkdirSync(outDir(), { recursive: true })
@@ -76,6 +88,10 @@ export function createLocal({ getConfig, log }) {
     mkdirSync(dir(), { recursive: true })
     if (!existsSync(join(dir(), README))) copyFileSync(join(TEMPLATES, README), join(dir(), README))
     const dest = pathOf(slot)
+    if (slot === 'song') {
+      const example = join(dir(), 'rvc-worker.env.example')
+      if (!existsSync(example)) copyFileSync(join(TEMPLATES, 'rvc-worker.env.example'), example)
+    }
     if (existsSync(dest)) return { ok: true, created: false, path: dest, message: '文件已经有了，没覆盖' }
     copyFileSync(join(TEMPLATES, SLOTS[slot].file), dest)
     return { ok: true, created: true, path: dest, message: '模板放好了，照里面的注释改，或者让 DSH 帮你改' }
@@ -98,5 +114,5 @@ export function createLocal({ getConfig, log }) {
     }))
   }
 
-  return { active, call, template, status, dir, pathOf }
+  return { active, call, identity, template, status, dir, pathOf }
 }
