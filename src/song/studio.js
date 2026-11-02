@@ -441,13 +441,16 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
       pypiMirror: cfg().pypiMirror || 'auto',
       parts,
       voices: voices.map((v) => ({ id: v.id, hasIndex: Boolean(v.index) })),
+      localSong,
       separatorLinks: parts.separatorModel ? [] : separatorLinks(cfg().separatorModel),
       voice: cfg().voice,
       install: { ...install, log: install.log.slice(-30) },
       current: current ? { ...current } : null,
       queue: queue.map((q) => ({ query: q.query, chatId: q.chatId })),
       history: history.slice(0, 10),
-      message: !voices.length ? '还没有音色：在下面「音色模型」里导入你有权使用的 RVC 模型（.pth 或 zip）' : ready ? (cfg().enabled ? '可以点歌了' : '准备好了，打开开关就能用') : '还差一些组件，点「一键安装」',
+      message: localSong
+        ? (ready ? (cfg().enabled ? '本地换声接口已接管；远程模型由 Worker 配置' : '本地换声接口已准备好，打开翻唱开关即可使用') : '本地换声接口已启用，但 Python、人声分离、FFmpeg 或分离模型尚未就绪')
+        : !voices.length ? '还没有音色：在下面「音色模型」里导入你有权使用的 RVC 模型（.pth 或 zip）' : ready ? (cfg().enabled ? '可以点歌了' : '准备好了，打开开关就能用') : '还差一些组件，点「一键安装」';
     }
   }
 
@@ -758,20 +761,24 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
 
   async function process1(job) {
     const c = cfg()
+    const localSong = Boolean(local?.active('song'))
     const voice = listVoices(P().models).find((v) => v.id === (job.voice || c.voice)) || listVoices(P().models)[0]
-    if (!voice && !local?.active('song')) throw new Error('还没有可用的音色模型')
+    if (!voice && !localSong) throw new Error('还没有可用的音色模型')
+    // 远程接口可声明 cacheKey（例如模型名 + f0 算法），换模型后不会误用旧成品。
+    const cacheIdentity = localSong ? (await local?.identity?.('song') || 'remote') : voice.id
+    const voiceLabel = voice?.id || (localSong ? '远程音色' : '')
     const pitch = Number.isFinite(Number(job.pitch)) ? Math.max(-24, Math.min(24, Math.round(Number(job.pitch)))) : Number(c.pitch) || 0
     const dir = join(work(), Date.now().toString(36))
     mkdirSync(dir, { recursive: true })
     current.stage = '下载歌曲'
     const song = job.file || (await download(job, dir))
     // 同一首歌、同一个音色、音高和截取方式做过的，直接复用
-    // v2：0.6.2 起才检查有没有人声，之前缓存的可能是只有伴奏的成品，一律不用
-    const key = createHash('md5').update(['v2', job.songKey || song, local?.active('song') ? 'local:' + (voice?.id || '') : voice.id, pitch, c.maxVoiceSec, c.clipStart].join('|')).digest('hex').slice(0, 16)
+    // v3：把本地 / 远程换声脚本声明的身份纳入缓存键
+    const key = createHash('md5').update(['v3', job.songKey || song, localSong ? 'local:' + cacheIdentity : voice.id, pitch, c.maxVoiceSec, c.clipStart].join('|')).digest('hex').slice(0, 16)
     const cached = join(work(), 'cache', key + '.mp3')
     if (existsSync(cached)) {
       log.info(`翻唱：「${job.title}」做过了，直接用缓存`)
-      return { file: cached, voice: voice.id, pitch, dir }
+      return { file: cached, voice: voiceLabel, pitch, dir }
     }
     current.stage = '截取要唱的那一段'
     const part = await cutFirst(song, dir)
@@ -797,7 +804,7 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
     mkdirSync(join(work(), 'cache'), { recursive: true })
     copyFileSync(out, cached)
     pruneCache(join(work(), 'cache'), 40)
-    return { file: cached, voice: voice.id, pitch, dir }
+    return { file: cached, voice: voiceLabel, pitch, dir }
   }
 
   async function pump() {
