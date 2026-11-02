@@ -3,7 +3,7 @@
 
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, statSync, statfsSync, writeFileSync, readFileSync, rmSync, copyFileSync, renameSync, openSync, readSync, closeSync } from 'node:fs'
-import { join, basename, dirname, isAbsolute } from 'node:path'
+import { join, basename, dirname, isAbsolute, delimiter } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 import { createHash } from 'node:crypto'
@@ -256,6 +256,20 @@ export function checkRoot(path) {
   return { ok: true, path: p, message: '', warn: warn || (freeGB !== null && freeGB < 10 ? `这个盘只剩 ${freeGB} GB，装完要 8 GB 左右，安装时还要临时多占几 GB` : ''), freeGB }
 }
 
+/** 在 PATH 中解析可执行文件；Linux 使用系统 ffmpeg，避免强制复制到插件私有目录。 */
+export function findExecutable(name, pathValue = process.env.PATH || '') {
+  if (!name) return ''
+  if (isAbsolute(name) || name.includes('/') || name.includes('\\\\')) return existsSync(name) ? name : ''
+  for (const dir of String(pathValue).split(delimiter).filter(Boolean)) {
+    const candidate = join(dir, name)
+    if (existsSync(candidate)) return candidate
+    if (process.platform === 'win32') {
+      for (const ext of ['.exe', '.cmd', '.bat']) if (existsSync(candidate + ext)) return candidate + ext
+    }
+  }
+  return ''
+}
+
 export function pathsOf(root) {
   return {
     root,
@@ -265,7 +279,7 @@ export function pathsOf(root) {
     models: join(root, 'models'),
     separatorModels: join(root, 'separator-models'),
     bin: join(root, 'bin'),
-    ffmpeg: join(root, 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+    ffmpeg: process.platform === 'win32' ? join(root, 'bin', 'ffmpeg.exe') : (findExecutable(process.env.FFMPEG_PATH || 'ffmpeg') || join(root, 'bin', 'ffmpeg')),
     rmvpe: join(root, 'Applio', 'rvc', 'models', 'predictors', 'rmvpe.pt'),
     contentvec: join(root, 'Applio', 'rvc', 'models', 'embedders', 'contentvec', 'pytorch_model.bin'),
   }
@@ -639,7 +653,7 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
   // ---------- 做一首 ----------
   const pyEnv = () => {
     const p = P()
-    return { PATH: p.bin + ';' + process.env.PATH, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
+    return { PATH: [p.bin, process.env.PATH].filter(Boolean).join(delimiter), PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
   }
 
   async function ffprobeDuration(file) {
