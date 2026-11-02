@@ -3,7 +3,7 @@
 // 不需要在腾讯云保存 .pth 音色模型；模型由 InstaBox Worker 的 RVC_MODEL 指定。
 // Node.js 20+，只使用内置 fetch / FormData / Blob，不需要 npm install。
 
-import { readFile, readFileSync, writeFile, mkdir } from 'node:fs'
+import { readFileSync, writeFile, mkdir } from 'node:fs'
 import { basename, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
