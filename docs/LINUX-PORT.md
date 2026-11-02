@@ -12,6 +12,7 @@
   `python3 -m venv` 安装入口；Linux 缺失 TTS 时抛出可读错误，让上层退回文字。
 - 翻唱环境可识别 Linux 绝对路径、磁盘空间与常见可执行文件位置。
 - 新增 InstaBox Private RVC Worker 远程换声模板：腾讯云只做下载、人声分离和混音，InstaBox 负责 RVC CPU 推理；远程模型和 F0 算法参与缓存键。
+- Linux 翻唱路径已修正为使用系统 `ffmpeg`（从 PATH 解析）并按平台使用正确的 PATH 分隔符，避免将 Windows 的 `;` 用在 Linux。
 
 ## 下一步（尚未验证）
 
