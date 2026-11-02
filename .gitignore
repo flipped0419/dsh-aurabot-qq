@@ -1,3 +1,6 @@
 node_modules/
 *.log
 *.tmp-*
+
+# Local RVC credentials (never commit)
+rvc-worker.env
