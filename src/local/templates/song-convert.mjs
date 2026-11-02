@@ -60,9 +60,16 @@ async function get(path, c, { timeoutMs = 120_000, attempts = 3 } = {}) {
         await delay(3000 * (i + 1))
         continue
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 240)}`)
+      if (!res.ok) {
+        const error = new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 240)}`)
+        if (![502, 503, 504].includes(res.status)) throw Object.assign(error, { permanent: true })
+        last = error
+        if (i + 1 < attempts) await delay(3000 * (i + 1))
+        continue
+      }
       return res
     } catch (error) {
+      if (error.permanent) throw error
       last = error
       if (i + 1 < attempts) await delay(3000 * (i + 1))
     }
