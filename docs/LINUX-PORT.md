@@ -11,7 +11,7 @@
 - TTS 增加 Linux Python venv (`bin/python`、`lib/pythonX.Y/site-packages`) 探测，
   `python3 -m venv` 安装入口；Linux 缺失 TTS 时抛出可读错误，让上层退回文字。
 - 翻唱环境可识别 Linux 绝对路径、磁盘空间与常见可执行文件位置。
-  **翻唱一键安装器尚未适配 Linux**，仍包含 Windows PowerShell 和 GPU/CUDA 依赖。
+- 新增 InstaBox Private RVC Worker 远程换声模板：腾讯云只做下载、人声分离和混音，InstaBox 负责 RVC CPU 推理；远程模型和 F0 算法参与缓存键。
 
 ## 下一步（尚未验证）
 
@@ -21,8 +21,7 @@
 3. 在 Aurabot 面板连接已有 OneBot HTTP/WS 地址（配套的凭据保持在私有数据目录）。
    SnowLuma 自动启动、自动注入应关闭，避免 Windows 进程管理逻辑生效。
 4. 验证真实 QQ 群聊和私聊、空间、表情、语音和断线恢复；再适配 Linux 连接向导。
-5. 翻唱的下载、人声分离、RVC、混音、安装器单独适配；2C2G 不执行本地 GPU 推理，
-   需要远程计算资源时沿用原项目的本地接口扩展点。
+5. 已通过腾讯云到 InstaBox 的私有 HTTPS 健康检查、模型查询和真实 WAV 上传/推理/下载；下一步在 DSH 中启用远程换声脚本，检查腾讯云 audio-separator / FFmpeg 环境，并完成整首 QQ 翻唱验收。2C2G 不执行本地 GPU 推理。
 
 ## 隔离与密钥
 
@@ -43,3 +42,9 @@
   参见 deploy/linux/compose.yaml、verify-host.sh、README.md。
 - GitHub fork flipped0419/dsh-aurabot-qq 已可被集成读取，
   但集成写入 Git Trees 返回 HTTP 403；当前 Git 提交仍保存在服务器本地。
+
+## 2026-11-02：InstaBox 远程 RVC Worker 联调
+
+- InstaBox 端已部署 CPU RVC Worker，腾讯云通过 Private HTTPS 访问；`/health` 与 `/v1/models` 双层鉴权均返回 HTTP 200。
+- 13.91 秒 WAV 从腾讯云上传到 InstaBox，CPU 推理后成功轮询并下载 40 kHz 单声道 WAV（约 1.1 MB）。
+- Linux 分支新增远程换声模板，密钥只放在 Aurabot 数据目录 `local/rvc-worker.env`，不入库。QQ 完整翻唱、真实音色和音质验收仍待完成。
