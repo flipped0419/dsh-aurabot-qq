@@ -60,7 +60,7 @@ https://snowluma.github.io/zh/docs/guide/deploy/docker
 - Linux Edge TTS 已安装并在开发容器真实合成成功，音频通过模块写入。
 - DSH API 返回 Aurabot 状态 200 / ok=true，版本为 1.0.4，12 个模块被加载。
 - Linux 分支的 `song-convert.mjs` 本地接口模板可调用 InstaBox Private RVC Worker；真实 Port Token / Worker Key 放在数据目录 `local/rvc-worker.env`，不得提交源码库。
-- 腾讯云仍需运行 audio-separator 和 FFmpeg；InstaBox 只负责 RVC CPU 推理。远程 WAV 测试已通过，完整歌曲下载、分离、换声、混音和 QQ 发送仍待实机验收。
+- 腾讯云仍需运行 audio-separator 和 FFmpeg；Linux 版会从系统 PATH 解析 FFmpeg，无需把二进制复制到私有 RVC 目录。InstaBox 只负责 RVC CPU 推理。远程 WAV 测试已通过，完整歌曲下载、分离、换声、混音和 QQ 发送仍待实机验收。
 
 ## 四、安全和维护
 
