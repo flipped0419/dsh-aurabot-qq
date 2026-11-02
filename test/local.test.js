@@ -42,7 +42,7 @@ test('翻唱模板：生成 InstaBox 配置示例，并可按远程模型身份�
   assert.equal(r.ok, true)
   assert.ok(existsSync(join(local.dir(), 'rvc-worker.env.example')))
   assert.match(readFileSync(join(local.dir(), 'rvc-worker.env.example'), 'utf8'), /RVC_WORKER_KEY=/)
-  writeFileSync(local.pathOf('song'), "export const cacheKey = async () => 'instabox:Fp231.pth:pm'\\nexport default async () => ''")
+  writeFileSync(local.pathOf('song'), "export const cacheKey = async () => 'instabox:Fp231.pth:pm'\nexport default async () => ''")
   assert.equal(await local.identity('song'), 'instabox:Fp231.pth:pm')
 })
 
