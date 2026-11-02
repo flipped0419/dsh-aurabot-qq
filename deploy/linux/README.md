@@ -2,7 +2,7 @@
 
 本移植保留原版 Aurabot 的全部模块及 Web 面板，不转换为腾讯 QQ 开放平台机器人。
 截至 2026-10-26，DSH Web 已在 QwenPaw 容器独立启动，150/150 模拟测试通过；
-真实 SnowLuma / QQ 登录、空间、表情、翻唱尚未联调。
+真实 SnowLuma / QQ 登录、空间和表情尚未完成验收；腾讯云至 InstaBox 的 RVC 远程 API 和 WAV 推理已通过，QQ 完整翻唱仍待联调。
 
 ## 环境划分
 
@@ -59,8 +59,8 @@ https://snowluma.github.io/zh/docs/guide/deploy/docker
 - 原版人格、权限区分、记忆、心情、群聊策略、表情包、空间、B站等模块原样保留。
 - Linux Edge TTS 已安装并在开发容器真实合成成功，音频通过模块写入。
 - DSH API 返回 Aurabot 状态 200 / ok=true，版本为 1.0.4，12 个模块被加载。
-- 原版本地 RVC/Applio 安装器尚有 Windows 特有的路径、下载和 CUDA 依赖。
-- 完整翻唱需要继续做跨平台适配或外置 GPU 推理；2C2G 不适合本地模型。
+- Linux 分支的 `song-convert.mjs` 本地接口模板可调用 InstaBox Private RVC Worker；真实 Port Token / Worker Key 放在数据目录 `local/rvc-worker.env`，不得提交源码库。
+- 腾讯云仍需运行 audio-separator 和 FFmpeg；InstaBox 只负责 RVC CPU 推理。远程 WAV 测试已通过，完整歌曲下载、分离、换声、混音和 QQ 发送仍待实机验收。
 
 ## 四、安全和维护
 
