@@ -1,7 +1,7 @@
 // 翻唱：截取位置、音色列表、网易云加密和 Cookie 解析、点歌的前置检查、/sing 命令。
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -31,6 +31,16 @@ test('挑歌：钢琴版、伴奏这类排到最后，点歌时本来就要钢�
   assert.deepEqual(studio.rankCandidates(list, '稻香').map((x) => x.id), [3, 4, 1, 2])
   assert.deepEqual(studio.rankCandidates(list, '稻香 钢琴版').map((x) => x.id), [1, 2, 3, 4])
   assert.ok(studio.VOCAL_MIN_DB < -40)
+})
+
+test('Linux PATH：能解析系统 ffmpeg 可执行文件', () => {
+  if (process.platform === 'win32') return
+  const dir = mkdtempSync(join(tmpdir(), 'aurabot-path-'))
+  const bin = join(dir, 'bin')
+  mkdirSync(bin)
+  writeFileSync(join(bin, 'ffmpeg'), '#!/bin/sh\\n')
+  assert.equal(studio.findExecutable('ffmpeg', bin), join(bin, 'ffmpeg'))
+  assert.equal(studio.findExecutable('missing-ffmpeg', bin), '')
 })
 
 test('音色列表：models 目录里的 .pth，配同名 .index', () => {
