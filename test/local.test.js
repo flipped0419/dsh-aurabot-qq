@@ -36,6 +36,16 @@ test('默认都关着；生成模板（带说明，不覆盖已有的）', () =>
   assert.match(st.prompt, /只改这一个脚本/)
 })
 
+test('翻唱模板：生成 InstaBox 配置示例，并可按远程模型身份区分缓存', async () => {
+  const local = L.createLocal({ getConfig: () => cfg, log })
+  const r = local.template('song')
+  assert.equal(r.ok, true)
+  assert.ok(existsSync(join(local.dir(), 'rvc-worker.env.example')))
+  assert.match(readFileSync(join(local.dir(), 'rvc-worker.env.example'), 'utf8'), /RVC_WORKER_KEY=/)
+  writeFileSync(local.pathOf('song'), "export const cacheKey = async () => 'instabox:Fp231.pth:pm'\\nexport default async () => ''")
+  assert.equal(await local.identity('song'), 'instabox:Fp231.pth:pm')
+})
+
 test('开关打开就接管；脚本改完不用重启；出错有记录', async () => {
   const local = L.createLocal({ getConfig: () => cfg, log })
   cfg.local.tts = true
