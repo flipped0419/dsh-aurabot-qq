@@ -32,6 +32,9 @@ function fakePng(w, h, salt = 0) {
 async function brain({ preset, text, images, callTool }) {
   if (text.includes('at+表情测试')) return '<at:10000001> 看这个<sticker:开心>'
   if (text.includes('热重载探针')) { const r = await callTool('probe73', {}); return r ? '探针:' + r.message : '没有探针工具' }
+  if (text.includes('慢工具测试')) { const r = await callTool('slow74', {}); return r ? '慢工具好了' : '没有慢工具' }
+  if (text.includes('排队权限测试0') || text.includes('排队权限测试2')) { const r = await callTool('permprobe90', {}); return r ? String(r.message || '') : '没有探针' }
+  if (text.includes('排队权限测试1')) { await sleep(1200); return '第一轮好了' }
   if (text.includes('【空间互动')) { qzonePrompts.push(text); return '哈哈好看' }
   if (/^【(私聊|群聊)/.test(text) && text.includes('戳了戳你')) return '干嘛戳我<poke>'
   if (/^【私聊/.test(text) && text.includes('表情改名测试')) { const m = text.match(/把「(.+?)」/); const r = await callTool('qq_edit_sticker', { sticker: m[1], new_name: '改过的名字', tags: ['开心'] }); return r.message }
@@ -77,6 +80,8 @@ async function brain({ preset, text, images, callTool }) {
   if (text.includes('跑个慢任务')) { await new Promise((r) => setTimeout(r, 1500)); return '慢任务跑完了' }
   if (text.includes('改成快的')) return '好 改成快的'
   if (text.includes('语音说你好')) return '你好呀'
+  if (text.includes('表情语音测试')) return '<voice>晚安<face:呲牙>😁</voice>'
+  if (text.includes('语音带引用')) return '<voice>晚安啦 做个好梦</voice>'
   if (text.includes('晚安')) return '<voice>晚安啦 做个好梦</voice>'
   if (text.includes('没人叫你')) return '[沉默]'
   if (images.length) return '这表情好可爱|||哪来的'
@@ -124,7 +129,9 @@ before(async () => {
     setupDone: true,
     botQQ: BOT,
     ownerQQ: OWNER,
-    allow: { private: [OWNER], groups: ['555', '557', '558', '559'] },
+    allow: { private: [OWNER], groups: ['555', '556', '557', '558', '559'] },
+    // 556 专门测按头衔不理
+    titleFilter: { enabled: true, groups: ['556'], title: '大肥鱼' },
     snowluma: { autoStart: false, autoAttach: false, httpUrl: mock.httpUrl, wsUrl: mock.wsUrl, httpToken: mock.token, wsToken: mock.token, dir: join(dataDir, 'no-snowluma') },
     voice: { engine: process.platform === 'win32' ? 'windows' : 'edge', autoChance: 0 },
     stickers: { autoChance: 0 },
@@ -278,6 +285,20 @@ test('群管：她在群里只是普通成员时，主人要求也做不了，�
   } finally {
     delete mock.state.roles['555']
   }
+})
+
+test('按头衔不理：勾选的群里头衔是「大肥鱼」的成员 @ 她、戳她都不交给模型；没头衔的照常回', async () => {
+  const at = (t) => [{ type: 'at', data: { qq: BOT } }, { type: 'text', data: { text: ' ' + t } }]
+  const titled = (uid, t) => ({ ...grp('556', uid, at(t), '另一只鱼'), sender: { user_id: Number(uid), nickname: '另一只鱼', card: '', role: 'member', title: '大肥鱼' } })
+  const turns = fake.turns.length
+  mock.push(titled('880', '你好呀'))
+  mock.push({ post_type: 'notice', notice_type: 'notify', sub_type: 'poke', group_id: 556, user_id: 880, target_id: Number(BOT), self_id: Number(BOT) })
+  await sleep(1500)
+  assert.equal(fake.turns.length, turns, '机器人的消息和戳一戳都没交给她')
+  mock.push(grp('556', '881', at('在吗'), '普通群友'))
+  await until(() => fake.turns.length > turns)
+  assert.match(fake.turns.at(-1).userText, /在吗/)
+  assert.doesNotMatch(fake.turns.at(-1).userText, /你好呀/, '被过滤的那条也没进群聊上下文')
 })
 
 test('QQ 命令：主人 /silent 后群里 @ 她也不回，/active 恢复；群友发命令不算', async () => {
@@ -480,6 +501,44 @@ test('语音：回复里的 <voice> 变成 QQ 语音条', async () => {
   await until(() => sentTo('private', OWNER).some((c) => c.params.message[0].type === 'record'), 20000)
   const rec = sentTo('private', OWNER).find((c) => c.params.message[0].type === 'record')
   assert.match(rec.params.message[0].data.file, /^base64:\/\//)
+})
+
+test('引用 + 语音：语音条单独一条发，不和引用/@ 拼在同一条（issue #103）', async () => {
+  const http = await import('node:http')
+  // 用本地 HTTP TTS 避免依赖各平台的 TTS（Windows 语音在 Linux 上不可用）
+  const srv = http.createServer((req, res) => { res.setHeader('content-type', 'audio/wav'); res.end(Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(2000)])) })
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+  await fake.call('/save', { voice: { engine: 'http', http: { urlTemplate: `http://127.0.0.1:${srv.address().port}/tts?text={text}` } } })
+  try {
+    const at = (t) => [{ type: 'at', data: { qq: BOT } }, { type: 'text', data: { text: ' ' + t } }]
+    const before = mock.calls.length
+    mock.push(grp('557', '999', at('语音带引用'), 'xiaoming'))
+    await until(() => mock.calls.slice(before).some((c) => c.action === 'send_group_msg' && (c.params.message || []).some((s) => s.type === 'record')), 20000)
+    const recs = mock.calls.slice(before).filter((c) => c.action === 'send_group_msg' && (c.params.message || []).some((s) => s.type === 'record'))
+    assert.equal(recs.length, 1, '语音条应该只发一条')
+    assert.deepEqual(recs[0].params.message.map((s) => s.type), ['record'], '语音条必须单独一条，不能带引用/@：' + JSON.stringify(recs[0].params.message.map((s) => s.type)))
+  } finally {
+    srv.close()
+    await fake.call('/save', { voice: { engine: 'windows' } })
+  }
+})
+
+test('语音条不把 QQ 表情/emoji 念出来（face 标签和 emoji 在 TTS 前去掉）', async () => {
+  const http = await import('node:http')
+  let spoken = ''
+  const srv = http.createServer((req, res) => { spoken = new URL(req.url, 'http://x').searchParams.get('text') || ''; res.end(Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(2000)])) })
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+  await fake.call('/save', { voice: { engine: 'http', http: { urlTemplate: `http://127.0.0.1:${srv.address().port}/tts?text={text}` } } })
+  try {
+    const n = sentTo('private', OWNER).length
+    mock.push(priv(OWNER, text('表情语音测试')))
+    await until(() => sentTo('private', OWNER).slice(n).some((c) => (c.params.message || []).some((s) => s.type === 'record')), 20000)
+    assert.match(spoken, /晚安/, '能念的字要保留：' + spoken)
+    assert.doesNotMatch(spoken, /呲牙|face:|😁|在读/, '表情标签和 emoji 不能念出来：' + spoken)
+  } finally {
+    srv.close()
+    await fake.call('/save', { voice: { engine: 'windows' } })
+  }
 })
 
 test('听语音：收到语音先转文字再交给她', async () => {
@@ -961,7 +1020,7 @@ test('#58 在 DSH 会话窗口里直接打字：这一轮按主人说的算（�
   // 从 QQ 转进来的消息（source.kind = 'aurabot'）不会误标成「面板里直接打字」
   api.hub.onSessionEvent({ id: sid }, { type: 'turn/end', data: { turn: 999999, reason: { kind: 'completed' } } })
   api.hub.onSessionEvent({ id: sid }, { type: 'user/message', data: { role: 'user', source: { kind: 'aurabot' }, content: [{ type: 'text', text: 'x' }] } })
-  assert.equal(api.hub.turnSendersAllOwner(sid), false, 'QQ 转进来的不标成主人直输')
+  assert.equal(api.hub.turnSendersAllOwner(sid), true, '主人私聊里还有 #90 的安全兜底：这里只可能是主人说话')
 })
 
 test('模块热重载后：已有会话下一轮会重挂新实例的工具（issue #73）', async () => {
@@ -1004,4 +1063,86 @@ test('#77 群里 at 标签和表情包同时出现：at 是真 @，表情包单�
   assert.ok(atMsg.some((s) => s.type === 'at' && String(s.data.qq) === OWNER), 'at 目标是主人：' + JSON.stringify(atMsg))
   assert.ok(sent.some((m) => m.some((s) => s.type === 'image')), '表情包要单独一条：' + JSON.stringify(sent))
   assert.ok(!sent.some((m) => m.some((s) => s.type === 'text' && /@10000001/.test(s.data.text))), '不能把 at 降级成文字：' + JSON.stringify(sent))
+})
+
+test('慢工具卡住超过 1.5 秒先发一条「正在做」提示，不让主人干等整轮（issue #74）', async () => {
+  const modsDir = join(dataDir, 'modules', 'slow74')
+  mkdirSync(modsDir, { recursive: true })
+  writeFileSync(join(modsDir, 'index.mjs'), `export default {
+  id: 'slow74', name: '慢工具探针', api: 1,
+  setup(api) {
+    api.tool(({ chat, level }) => level === 'chat' ? [] : [api.defineTool({
+      name: 'slow74', description: '慢工具探针',
+      slow: '还在忙，稍等一会儿～',
+      properties: {},
+      execute: async () => { await new Promise((r) => setTimeout(r, 1800)); return { ok: true, message: '慢的好了' } },
+    })])
+  },
+}`)
+  const before = mock.calls.length
+  const turn = async () => {
+    const n = fake.turns.length
+    mock.push(priv(OWNER, text('慢工具测试')))
+    await until(() => fake.turns.length > n, 15000)
+    return fake.turns.at(-1)
+  }
+  const t = await until(async () => { const x = await turn(); return x.reply === '慢工具好了' ? x : null }, 25000)
+  assert.equal(t.reply, '慢工具好了')
+  const sent = mock.calls.slice(before).filter((c) => c.action === 'send_private_msg').map((c) => c.params.message)
+  const texts = sent.map((m) => (m || []).filter((s) => s.type === 'text').map((s) => s.data.text).join(''))
+  const noticeAt = texts.findIndex((x) => /还在忙/.test(x))
+  const doneAt = texts.findIndex((x) => /慢工具好了/.test(x))
+  assert.ok(noticeAt >= 0, '慢工具卡住时要先发提示：' + JSON.stringify(texts))
+  assert.ok(doneAt > noticeAt, '提示要比最终回复先到：' + JSON.stringify(texts))
+  rmSync(modsDir, { recursive: true, force: true })
+})
+
+test('主人私聊里这一轮的说话人记录丢了，也按主人算（#90 兜底）', async () => {
+  const n = fake.turns.length
+  mock.push(priv(OWNER, text('兜底测试')))
+  await until(() => fake.turns.length > n, 8000)
+  const sid = fake.turns.at(-1).sessionId
+  assert.ok(sid, '主人私聊会话应该已经建过')
+  api.hub.simulateTurn(sid, [])
+  api.hub.onSessionEvent({ id: sid }, { type: 'turn/end', data: { turn: 999, reason: { kind: 'completed' } } })
+  assert.equal(api.hub.turnSendersAllOwner(sid), true, '主人私聊里仅主人操作不该被误拒')
+  assert.equal(api.hub.turnHasOwner(sid), true)
+  const gsid = api.hub.sessions()['group:557']?.sessionId
+  if (gsid) {
+    api.hub.simulateTurn(gsid, [])
+    api.hub.onSessionEvent({ id: gsid }, { type: 'turn/end', data: { turn: 998, reason: { kind: 'completed' } } })
+    assert.equal(api.hub.turnSendersAllOwner(gsid), false, '群聊不能兜底成主人')
+  }
+})
+
+test('上一轮还在跑时排队的新消息，不会让下一轮的「仅主人」判断失效（#90）', async () => {
+  const modsDir = join(dataDir, 'modules', 'permprobe90')
+  mkdirSync(modsDir, { recursive: true })
+  writeFileSync(join(modsDir, 'index.mjs'), `export default {
+  id: 'permprobe90', name: '权限探针', api: 1,
+  setup(api) {
+    const hub = api.core.hub
+    api.tool(({ level, sessionId }) => level === 'chat' ? [] : [api.defineTool({
+      name: 'permprobe90', description: '权限探针',
+      properties: {},
+      execute: async () => ({ ok: true, message: 'allOwner=' + hub.turnSendersAllOwner(sessionId) + ',hasOwner=' + hub.turnHasOwner(sessionId) }),
+    })])
+  },
+}`)
+  // 先等探针工具装上（模块 watcher 每 3 秒扫一次），期间反复发探测消息
+  const probe = async () => {
+    const n = fake.turns.length
+    mock.push(grp('557', OWNER, text('排队权限测试0'), '主人'))
+    await until(() => fake.turns.length > n, 8000)
+    return String(fake.turns.at(-1).reply || '')
+  }
+  await until(async () => /allOwner=/.test(await probe()), 20000)
+  // 上一轮还在跑（brain sleep 1200ms）时来下一条消息，两条都在 557 群里
+  const before = fake.turns.length
+  mock.push(grp('557', OWNER, text('排队权限测试1'), '主人'))
+  await sleep(800)
+  mock.push(grp('557', OWNER, text('排队权限测试2'), '主人'))
+  const second = await until(() => fake.turns.slice(before).find((t) => /allOwner=/.test(String(t.reply))), 20000)
+  assert.match(String(second.reply), /allOwner=true/, '排队轮次也要认出主人：' + second.reply)
+  rmSync(modsDir, { recursive: true, force: true })
 })

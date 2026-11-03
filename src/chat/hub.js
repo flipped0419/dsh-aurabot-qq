@@ -19,9 +19,10 @@ import { mimeOf } from './inbound.js'
 import { redact } from '../core/redact.js'
 import { defaultModel, pickReasoningEffort, canSeeImages, modelVision } from '../core/llm.js'
 import { resolveChatModel } from './chat-model.js'
-import { createFaces, textToSegments, stripFaceTags } from './faces.js'
+import { createFaces, textToSegments, stripFaceTags, speakableText } from './faces.js'
 import { expandMentions, hasMention } from './mentions.js'
 import { createRecentMedia } from './recent-media.js'
+import { createTitleFilter } from './title-filter.js'
 
 // QQ 会话的工作区目录，第一次收到消息时自动创建。面板「连接」页能改（config.workspaceDir，#32）；
 // 没填就用环境变量 AURABOT_WORKSPACE，再没有：老安装沿用 C:\Aurabot\qq-chats，新安装放在用户目录下（不用往 C 盘根目录写）
@@ -59,7 +60,8 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   const map = () => readJson(mapFile(), () => ({ chats: {} }))
   const saveMap = (m) => writeJson(mapFile(), m)
 
-  const mounted = new WeakMap() // agent → { off: fn[] , chatId }
+  const mounted = new Map() // sessionKey → { agent, offs, chatId, toolsKey }  按会话记，agent 对象换了也能清掉旧工具（#90）
+  const toolDisposers = new Map() // `${sessionKey}|${工具名}` → disposer，防注册表里残留同名工具时挂不上（#90）
   const sessionToChat = new Map() // sessionKey → chatId
   const turnState = new Map() // sessionKey → { lastTurn, text, images, senders:Set, system?: {resolve, reject} }
   const groupBuf = new Map() // groupId → [{t, uid, nick, text, at}]
@@ -70,7 +72,9 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   const ENGAGE_MS = 3 * 60_000
   const groupNames = new Map()
   const recentMedia = createRecentMedia({ log }) // 最近发来的图片和表情，短期落盘恢复
+  const slowNoticeSent = new Set() // sessionKey → 这一轮已经发过「正在做」提示（慢工具，issue #74）
   const faces = createFaces({ onebot, log }) // QQ 系统表情：<face:名字> ↔ 编号
+  const titleFilter = createTitleFilter({ getConfig, onebot, log }) // 勾选的群里，头衔是某个词的成员（别的机器人）不理
   const groupMembers = new Map() // groupId → { at, list }  群成员（真 @ 时按名字找人，缓存 10 分钟）
   const saidElsewhere = new Map() // chatId → [{ at, text }]  别处安排她在这里发的话，下次这个聊天交给她时补进去
 
@@ -288,9 +292,9 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     let gen = 0
     try { gen = typeof toolsGeneration === 'function' ? Number(toolsGeneration()) || 0 : 0 } catch (error) { gen = 0 }
     const toolsKey = tools.map((t) => t.name).sort().join(',') + '|' + denied.join(',') + '|gen:' + gen
-    const prev = mounted.get(agent)
-    // 工具清单变了（比如面板里开了生图）就整套重挂；没变就别动（改工具会让前缀缓存失效）
-    if (prev && prev.chatId === chat.chatId && prev.toolsKey === toolsKey) return
+    const prev = mounted.get(sid)
+    // 工具清单变了（比如面板里开了生图）就整套重挂；同一个 agent 且没变就别动（改工具会让前缀缓存失效）
+    if (prev && prev.agent === agent && prev.chatId === chat.chatId && prev.toolsKey === toolsKey) return
     if (prev) for (const off of prev.offs) { try { if (typeof off === 'function') off() } catch (error) {} }
     const offs = []
     // 联动工具是给 DSH 其他会话用的，她自己的 QQ 会话里不该有（陌生人的会话更不行）
@@ -300,7 +304,39 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     {
       for (const tool of tools) {
         try {
-          offs.push(agent.ctx.tools.register(tool))
+          // 慢工具（生图 / 翻唱……）卡超过 1.5 秒就先发一条提示：不让主人以为她没收到（issue #74）。
+          // 包装只加在挂给 agent 的这份工具上；面板里直接调工具（host 路由）照旧。
+          let reg = tool
+          if (tool.slow) {
+            const { slow, ...base } = tool
+            const notice = typeof slow === 'string' ? slow : '好，我这就去做，做完跟你说一声。'
+            reg = {
+              ...base,
+              async execute(args, exec) {
+                let fired = false
+                const timer = setTimeout(() => {
+                  if (fired) return
+                  fired = true
+                  if (slowNoticeSent.has(sid)) return
+                  slowNoticeSent.add(sid)
+                  sendText(chat.chatId, notice, undefined, [], undefined).catch((error) => log.debug('慢工具提示没发出去：', error.message))
+                }, 1500)
+                timer.unref?.()
+                try {
+                  return await tool.execute(args, exec)
+                } finally {
+                  clearTimeout(timer)
+                }
+              },
+            }
+          }
+          // 注册表里如果残留同名工具（旧 agent 作用域/旧版泄漏），先把我们记着的旧 disposer 清掉再注册
+          const dkey = sid + '|' + tool.name
+          const stale = toolDisposers.get(dkey)
+          if (stale) { try { stale() } catch (error) {} toolDisposers.delete(dkey) }
+          const off = agent.ctx.tools.register(reg)
+          toolDisposers.set(dkey, off)
+          offs.push(() => { toolDisposers.delete(dkey); try { off() } catch (error) {} })
         } catch (error) {
           log.warn(`工具 ${tool.name} 挂不上：`, error.message)
         }
@@ -324,7 +360,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     } catch (error) {
       log.debug('挂上下文失败：', error.message)
     }
-    mounted.set(agent, { chatId: chat.chatId, offs, toolsKey })
+    mounted.set(sid, { agent, chatId: chat.chatId, offs, toolsKey })
   }
 
   // ---------- 发到 QQ ----------
@@ -394,9 +430,15 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
 
   async function sendVoice(chatId, text, replyId, userId) {
     try {
-      const { file, engine } = await tts.speak(text)
+      // 表情标签 / emoji 不念出来：TTS 只念能说的字（用户反馈：发语音时「呲牙」被读出来）
+      const spoken = speakableText(text)
+      if (!spoken) throw new Error('这条语音里只有表情/符号，没有能念的字')
+      const { file, engine } = await tts.speak(spoken)
       const b64 = readFileSync(file).toString('base64')
-      const r = await sendSegments(chatId, [...quote(replyId), ...mention(userId), { type: 'record', data: { file: 'base64://' + b64 } }], `[语音·${engine}] ${text.slice(0, 40)}`)
+      // QQ 客户端不支持「引用 / @ + 语音」同一条消息：这样发电脑 QQ 是空白气泡、手机 QQ 提示
+      // 「该消息类型暂不支持查看」，语音也听不到（issue #103）。语音条一律单独成条，引用和 @ 只能放弃。
+      if (replyId || userId) log.debug(`语音条不能带引用/@（QQ 限制），单独发：${chatId}`)
+      const r = await sendSegments(chatId, [{ type: 'record', data: { file: 'base64://' + b64 } }], `[语音·${engine}] ${text.slice(0, 40)}`)
       if (r || getConfig().dryRun || !getConfig().enabled) bump('voice')
       if (!r && getConfig().enabled && !getConfig().dryRun) throw new Error('网关没接受语音')
       return true
@@ -657,6 +699,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       return
     }
     if (event.type === 'turn/end') {
+      slowNoticeSent.delete(key)
       running.delete(chatId)
       stopTyping(key)
       const d = event.data || {}
@@ -667,7 +710,9 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       const autoReply = st.autoReply
       st.autoReply = null
       st.text = ''
-      st.senders = new Set()
+      // 上一轮还在跑时新消息已经排队给「下一轮」：这一轮 turn/end 不能把下一轮的说话人清掉（#90）
+      st.senders = st.pendingSenders || new Set()
+      st.pendingSenders = new Set()
       st.directOwner = false
       st.system = null
       st.wantVoice = false
@@ -791,6 +836,8 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const cfg = getConfig()
     const msg = parseMessageEvent(event, selfId, { faceName: faces.nameOf })
     if (msg.userId === selfId) return
+    // 按群头衔过滤：这条当没看见（不进群聊上下文、不触发回复，@ 她、主人命令也一样）
+    if (msg.kind === 'group' && await titleFilter.shouldIgnore(event)) return
     bump('received')
     const now = Date.now()
 
@@ -971,6 +1018,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const group = ev.group_id ? String(ev.group_id) : ''
     const poker = String(group ? ev.user_id : ev.sender_id ?? ev.user_id)
     if (!poker || poker === self) return
+    if (group && await titleFilter.shouldIgnore({ group_id: group, user_id: poker })) return
     const chatId = group ? `group:${group}` : `private:${poker}`
     lastPoker.set(chatId, poker)
     if (Date.now() - (pokeAt.get(chatId) || 0) < 20_000) return
@@ -1192,8 +1240,17 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       const lines = earlier.map((x) => `${new Date(x.at).toTimeString().slice(0, 5)} 你：${x.text}`)
       content = [{ type: 'text', text: `【你之前在这个聊天里主动说过（是在别处安排下发的，这里的人都看到了）】\n${lines.join('\n')}\n` }, ...content]
     }
-    if (senderId) st.senders.add(String(senderId))
-    for (const s of opts.extraSenders || []) st.senders.add(String(s))
+    // 这一轮还在跑、这句是排队给下一轮的：额外记到 pendingSenders，等上一轮 turn/end 时接过去（#90）
+    const queuedNextTurn = !opts.steer && (running.has(chat.chatId) || busy.has(chat.chatId))
+    const addSender = (u) => {
+      st.senders.add(String(u))
+      if (queuedNextTurn) {
+        if (!st.pendingSenders) st.pendingSenders = new Set()
+        st.pendingSenders.add(String(u))
+      }
+    }
+    if (senderId) addSender(senderId)
+    for (const s of opts.extraSenders || []) addSender(s)
     // 上一句也留着：这一句太短（「嗯嗯」「然后呢」）时一起拿去想起相关的事
     if (st.lastText) st.prevText = st.lastText
     st.lastText = String(opts.queryText ?? content.filter((c) => c.type === 'text').map((c) => c.text).join('\n')).slice(-600)
@@ -1244,21 +1301,37 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
 
   /** 这一轮里说话的人是不是全是主人（群管等敏感工具用）。 */
   /** 这一轮里主人说过话（群里常有别人插话，不要求每条都是主人）。 */
+  // 主人私聊里只可能是主人说话：就算这一轮的记录丢了（工具是旧闭包、排队轮次被上一轮 turn/end 清掉等，见 #90），
+  // 「仅主人」也应当放行；群聊 / 别人私聊不放宽。
+  function ownerPrivateChat(sessionId) {
+    try { return chatOfSession(sessionId) === `private:${getConfig().ownerQQ}` } catch (error) { return false }
+  }
+
   function turnHasOwner(sessionId) {
     const st = turnState.get(sessionKey(sessionId))
     if (st && st.directOwner) return true // 主人在 DSH 面板里直接打字
-    return Boolean(st && [...st.senders].some((u) => isOwner(getConfig(), u)))
+    if (st && [...st.senders].some((u) => isOwner(getConfig(), u))) return true
+    return ownerPrivateChat(sessionId)
   }
 
   function turnSendersAllOwner(sessionId) {
     const st = turnState.get(sessionKey(sessionId))
     if (st && st.directOwner) return true // 主人在 DSH 面板里直接打字
-    if (!st || !st.senders.size) return false
+    if (!st || !st.senders.size) return ownerPrivateChat(sessionId)
     return [...st.senders].every((u) => isOwner(getConfig(), u))
   }
 
   function chatOfSession(sessionId) {
-    return sessionToChat.get(sessionKey(sessionId)) || ''
+    const key = sessionKey(sessionId)
+    const live = sessionToChat.get(key)
+    if (live) return live
+    // 重启后会话还没被第一条消息唤醒时，内存映射是空的：退回持久化的 聊天→会话 映射（#90 兜底要用）
+    try {
+      for (const [chatId, entry] of Object.entries(map().chats || {})) {
+        if (entry && entry.sessionId && sessionKey(entry.sessionId) === key) return chatId
+      }
+    } catch (error) {}
+    return ''
   }
 
   /** 只让一个聊天重新开始：归档它的会话，下一条消息开新会话。 */
@@ -1339,6 +1412,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     sendImage,
     sendSegments,
     pushToSession,
+    titleFilter,
     runSystemTurn,
     turnSendersAllOwner,
     turnHasOwner,

@@ -44,20 +44,25 @@ export const DEFAULTS = {
   merge: { enabled: true, waitSec: 2.5, maxSec: 8, groupWaitSec: 5, groupMaxSec: 15 }, // 连发合并：对方停顿 waitSec 秒再一起回，最多等 maxSec 秒；群里等得久一点，把一段话攒齐
   imageGen: {
     enabled: false,
-    provider: 'openai', // openai = 兼容 OpenAI /v1/images/generations 的服务；custom = 自己填接口（GET/POST + 参数）
+    provider: 'openai', // openai / custom；codex = 实验性订阅接法（需单独登录）
     baseUrl: '',
     apiKey: '',
     model: '',
     size: '1024x1024',
+    shape: 'her', // 工具可选构图；her 时未指定就沿用 size
     stylePrompt: '', // 每次生图自动加在前面的风格描述
     ownerOnly: true, // 只有主人能让她画
     seeOwn: true, // 「让她画完自己看一眼」：开着才把画好的图交给她看
     galleryShown: 20, // 面板「她的画作」显示最近几张（1~50；只影响显示，不删文件）
     // 自定义接法：url 里可以用 {prompt} {model} {size} {width} {height}；params 是参数名/值（值里也能用这些占位符）
     custom: { method: 'GET', url: '', bodyType: 'json', responsePath: '', params: [] },
+    // 实验性订阅接法；登录令牌独立保存在数据目录，不进入配置。
+    codex: { model: 'gpt-image-2', quality: 'auto', background: 'auto' },
   },
   persona: { current: 'dafeiyu' },
   group: { ...DEFAULT_GROUP_POLICY, overrides: {} },
+  // 按群头衔不回：勾选的群里，专属头衔正好是 title 的成员（一般是别的机器人）说话、戳她都不理。没勾群就不起作用
+  titleFilter: { enabled: true, groups: [], title: '大肥鱼' },
   voice: {
     enabled: true,
     // auto = 先 edge-tts，不行用 Windows 语音；edge / windows / cosyvoice / gptsovits / http = 指定引擎（失败都会退回 Windows 语音）
@@ -345,6 +350,9 @@ export function normalize(raw) {
   c.merge.maxSec = Math.max(c.merge.waitSec, num(c.merge.maxSec, 8, 0, 60))
   c.merge.groupWaitSec = num(c.merge.groupWaitSec, 5, 0, 60)
   c.merge.groupMaxSec = Math.max(c.merge.groupWaitSec, num(c.merge.groupMaxSec, 15, 0, 120))
+  c.titleFilter.enabled = bool(c.titleFilter.enabled, true)
+  c.titleFilter.groups = qqList(c.titleFilter.groups) // 和群白名单同一套规则
+  c.titleFilter.title = String(c.titleFilter.title ?? '').replace(/[​-‍﻿]/g, '').trim().slice(0, 30) || '大肥鱼'
   g.burstMax = num(g.burstMax, 8, 1, 50)
   g.burstWindowSec = num(g.burstWindowSec, 120, 10, 3600)
   if (!['auto', 'edge', 'windows', 'cosyvoice', 'gptsovits', 'http'].includes(c.voice.engine)) c.voice.engine = 'auto'
@@ -363,9 +371,15 @@ export function normalize(raw) {
   c.imageGen.seeOwn = bool(c.imageGen.seeOwn, true)
   if (!/^\d{3,4}x\d{3,4}$/.test(String(c.imageGen.size))) c.imageGen.size = '1024x1024'
   c.imageGen.galleryShown = Math.min(50, Math.max(1, Math.round(Number(c.imageGen.galleryShown) || 20)))
+  c.imageGen.shape = ['her', 'square', 'portrait', 'landscape', 'wide'].includes(c.imageGen.shape) ? c.imageGen.shape : 'her'
 
   // provider：custom = 自己填接口（GET/POST + 自定义参数），其它按 OpenAI 兼容
-  c.imageGen.provider = c.imageGen.provider === 'custom' ? 'custom' : 'openai'
+  c.imageGen.provider = ['custom', 'codex'].includes(c.imageGen.provider) ? c.imageGen.provider : 'openai'
+  if (!isObj(c.imageGen.codex)) c.imageGen.codex = { ...DEFAULTS.imageGen.codex }
+  const igx = c.imageGen.codex
+  igx.model = ['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(igx.model) ? igx.model : 'gpt-image-2'
+  igx.quality = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'].includes(igx.quality) ? igx.quality : 'auto'
+  igx.background = ['auto', 'transparent', 'opaque'].includes(igx.background) ? igx.background : 'auto'
   if (!c.imageGen.custom || typeof c.imageGen.custom !== 'object') c.imageGen.custom = { ...DEFAULTS.imageGen.custom }
   const igc = c.imageGen.custom
   igc.method = String(igc.method || 'GET').toUpperCase() === 'POST' ? 'POST' : 'GET'

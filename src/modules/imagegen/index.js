@@ -13,11 +13,27 @@ export default {
   version: '1.0.0',
   description: '画一张图发到聊天里（qq_draw_image）',
   tab: 'imagegen',
-  files: ['features/imagegen.js', 'features/paintings.js'],
+  files: ['features/imagegen.js', 'features/image-shape.js', 'features/paintings.js', 'features/codex-auth.js', 'features/codex-image.js'],
   setup(api) {
     const { hub, local } = api.core
     const memory = api.lazy('memory')
     const gen = createImageGen({ getConfig: api.config, log: api.log, local })
+    const auth = gen.codexAuth
+    api.onDispose?.(() => gen.dispose())
+    const accountAction = (fn) => async (req) => {
+      if (req?.method !== 'POST' || !/^application\/json(?:\s*;|$)/i.test(String(req.headers?.['content-type'] || ''))) return { ok: false, message: '账号操作需要 POST JSON 请求' }
+      return fn(req)
+    }
+    api.route('/image/codex/status', async () => ({ ok: true, ...auth.status(), login: auth.loginStatus() }))
+    api.route('/image/codex/login', accountAction(async () => ({ ok: true, ...(await auth.startLogin()), ...auth.loginStatus() })))
+    api.route('/image/codex/login/status', async () => ({ ok: true, ...auth.loginStatus(), ...auth.status() }))
+    api.route('/image/codex/complete', accountAction(async (req) => {
+      const body = await api.core.http.body(req)
+      const credential = await auth.completeLogin(String(body?.input || ''))
+      return { ok: true, email: credential.email || '', accountId: credential.accountId || '' }
+    }))
+    api.route('/image/codex/cancel', accountAction(async () => ({ ok: true, ...auth.cancelLogin('已取消') })))
+    api.route('/image/codex/logout', accountAction(async () => ({ ok: true, ...auth.logout() })))
 
     // 她的画作：面板底下的图库（直接读存图目录，可以单张删、开文件夹）
     api.route('/image/gallery', async (req) => {
@@ -39,15 +55,19 @@ export default {
 
     api.tool(({ chat, sessionId }) => (gen.enabled() && chat.kind !== 'system' ? defineTool({
       name: 'qq_draw_image',
-      description: '画一张图并发到当前 QQ 聊天里。prompt 用中文或英文详细描述画面（主体、动作、场景、风格）。画好会直接发出去，并给你一个画作编号（换头像、收成表情时用这个编号）。回复里简单说一句就行。',
-      properties: { prompt: str('画面描述') },
+      description: '画一张图并发到当前 QQ 聊天里。prompt 详细描述画面，shape 可按用途选择方图、竖图、横图或宽幅；不填就沿用面板默认构图 / 图片尺寸。画好会直接发出去，并给你一个画作编号（换头像、收成表情时用这个编号）。回复里简单说一句就行。',
+      properties: {
+        prompt: str('画面描述'),
+        shape: { type: 'string', enum: ['square', 'portrait', 'landscape', 'wide'], description: 'square 方图 1:1；portrait 竖图 2:3；landscape 横图 3:2；wide 宽幅 16:9。可不填' },
+      },
       required: ['prompt'],
+      slow: '好，我这就去画，画好了发你。',
       // 能看图时把原图放进工具结果（image 块），她当轮就能看见自己画了什么
       render: drawResultBlocks,
-      execute: async ({ prompt }) => {
+      execute: async ({ prompt, shape }) => {
         if (api.config().imageGen.ownerOnly && !hub.turnSendersAllOwner(sessionId)) return { ok: false, message: '画图只给主人画哦' }
         const startedAt = Date.now()
-        const buf = await gen.generate(String(prompt || ''))
+        const buf = await gen.generate(String(prompt || ''), { shape })
         const sent = await hub.sendSegments(chat.chatId, [{ type: 'image', data: { file: 'base64://' + buf.toString('base64') } }], `[生图] ${String(prompt).slice(0, 30)}`)
         if (!sent) return { ok: false, message: '画好了，但没有发到 QQ（请检查试运行和网关）' }
         const saved = savePainting(buf, String(prompt || ''))
