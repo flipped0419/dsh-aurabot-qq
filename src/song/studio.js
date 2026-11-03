@@ -445,7 +445,10 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
     }
     // 换声交给本地脚本时，不需要内置的 Applio / 预训练文件 / 音色模型（下载、分离、混音还是插件做）
     const localSong = Boolean(local?.active('song'))
-    const ready = localSong ? ['python', 'separator', 'ffmpeg', 'separatorModel'].every((k) => parts[k]) : Object.values(parts).every(Boolean) && voices.length > 0
+    const localSongProcess = Boolean(local?.active('songProcess'))
+    const ready = localSongProcess ? parts.ffmpeg
+      : localSong ? ['python', 'separator', 'ffmpeg', 'separatorModel'].every((k) => parts[k])
+      : Object.values(parts).every(Boolean) && voices.length > 0
     return {
       enabled: cfg().enabled,
       ready,
@@ -456,14 +459,16 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
       parts,
       voices: voices.map((v) => ({ id: v.id, hasIndex: Boolean(v.index) })),
       localSong,
+      localSongProcess,
       separatorLinks: parts.separatorModel ? [] : separatorLinks(cfg().separatorModel),
       voice: cfg().voice,
       install: { ...install, log: install.log.slice(-30) },
       current: current ? { ...current } : null,
       queue: queue.map((q) => ({ query: q.query, chatId: q.chatId })),
       history: history.slice(0, 10),
-      message: localSong
-        ? (ready ? (cfg().enabled ? '本地换声接口已接管；远程模型由 Worker 配置' : '本地换声接口已准备好，打开翻唱开关即可使用') : '本地换声接口已启用，但 Python、人声分离、FFmpeg 或分离模型尚未就绪')
+      message: localSongProcess
+        ? (ready ? (cfg().enabled ? '远程整段处理已接管；人声分离和 RVC 都在 InstaBox' : '远程整段处理已准备好，打开翻唱开关即可使用') : '远程整段处理需要本机 FFmpeg 用于截取与混音')
+        : localSong ? (ready ? (cfg().enabled ? '本地换声接口已接管；远程模型由 Worker 配置' : '本地换声接口已准备好，打开翻唱开关即可使用') : '本地换声接口已启用，但 Python、人声分离、FFmpeg 或分离模型尚未就绪')
         : !voices.length ? '还没有音色：在下面「音色模型」里导入你有权使用的 RVC 模型（.pth 或 zip）' : ready ? (cfg().enabled ? '可以点歌了' : '准备好了，打开开关就能用') : '还差一些组件，点「一键安装」',
     }
   }
@@ -776,11 +781,13 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
   async function process1(job) {
     const c = cfg()
     const localSong = Boolean(local?.active('song'))
+    const localSongProcess = Boolean(local?.active('songProcess'))
     const voice = listVoices(P().models).find((v) => v.id === (job.voice || c.voice)) || listVoices(P().models)[0]
-    if (!voice && !localSong) throw new Error('还没有可用的音色模型')
-    // 远程接口可声明 cacheKey（例如模型名 + f0 算法），换模型后不会误用旧成品。
-    const cacheIdentity = localSong ? (await local?.identity?.('song') || 'remote') : voice.id
-    const voiceLabel = voice?.id || (localSong ? '远程音色' : '')
+    if (!voice && !localSong && !localSongProcess) throw new Error('还没有可用的音色模型')
+    // 全流程扩展优先于单独换声扩展，两者同时打开时不重复处理。
+    const cacheIdentity = localSongProcess ? (await local?.identity?.('songProcess') || 'remote-all')
+      : localSong ? (await local?.identity?.('song') || 'remote-vocals') : voice.id
+    const voiceLabel = localSongProcess ? '远程音色' : voice?.id || (localSong ? '远程音色' : '')
     const pitch = Number.isFinite(Number(job.pitch)) ? Math.max(-24, Math.min(24, Math.round(Number(job.pitch)))) : Number(c.pitch) || 0
     const dir = join(work(), Date.now().toString(36))
     mkdirSync(dir, { recursive: true })
@@ -788,7 +795,7 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
     const song = job.file || (await download(job, dir))
     // 同一首歌、同一个音色、音高和截取方式做过的，直接复用
     // v3：把本地 / 远程换声脚本声明的身份纳入缓存键
-    const key = createHash('md5').update(['v3', job.songKey || song, localSong ? 'local:' + cacheIdentity : voice.id, pitch, c.maxVoiceSec, c.clipStart].join('|')).digest('hex').slice(0, 16)
+    const key = createHash('md5').update(['v4', job.songKey || song, localSongProcess ? 'remote-all:' + cacheIdentity : localSong ? 'local:' + cacheIdentity : voice.id, pitch, c.maxVoiceSec, c.clipStart].join('|')).digest('hex').slice(0, 16)
     const cached = join(work(), 'cache', key + '.mp3')
     if (existsSync(cached)) {
       log.info(`翻唱：「${job.title}」做过了，直接用缓存`)
@@ -796,10 +803,29 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
     }
     current.stage = '截取要唱的那一段'
     const part = await cutFirst(song, dir)
-    current.stage = '分离人声和伴奏'
-    const { vocals, inst } = await separate(part.file, dir)
-    // 纯音乐 / 伴奏版分不出人声：换下一首候选重做，不然发出去只有伴奏
-    const vol = await meanVolume(vocals)
+    let converted, inst, volumeSource
+    if (localSongProcess) {
+      current.stage = 'InstaBox 分离人声并转换音色'
+      const outputVocals = join(dir, 'vocals_rvc.wav')
+      const outputInstrumental = join(dir, 'instrumental.wav')
+      const result = await local.call('songProcess', {
+        input: part.file, outputVocals, outputInstrumental, pitch,
+        voice: voice?.id || '', voiceFile: voice?.pth || '', indexFile: voice?.index || '',
+      })
+      converted = result?.vocals || outputVocals
+      inst = result?.instrumental || outputInstrumental
+      if (!existsSync(converted) || !existsSync(inst)) throw new Error('远程翻唱脚本未生成转换人声和伴奏文件')
+      volumeSource = converted
+    } else {
+      current.stage = '分离人声和伴奏'
+      const tracks = await separate(part.file, dir)
+      inst = tracks.inst
+      volumeSource = tracks.vocals
+      current.stage = '换成她的声音'
+      converted = await convert(tracks.vocals, dir, voice, pitch)
+    }
+    // 纯音乐 / 伴奏版没有有效人声时，换下一首候选；远程模式检测转换后的人声。
+    const vol = await meanVolume(volumeSource)
     if (vol < VOCAL_MIN_DB) {
       log.info(`翻唱：「${job.title}」几乎没有人声（${vol.toFixed(0)} dB），像是纯音乐`)
       try { rmSync(dir, { recursive: true, force: true }) } catch (error) {}
@@ -810,8 +836,6 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
       current.stage = '换一版重下'
       return process1(job)
     }
-    current.stage = '换成她的声音'
-    const converted = await convert(vocals, dir, voice, pitch)
     current.stage = '混音'
     const mixed = await mix(converted, inst, dir)
     const out = part.cut ? await fade(mixed, dir, part.length) : mixed
