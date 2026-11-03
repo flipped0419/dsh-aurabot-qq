@@ -519,7 +519,7 @@ test('引用 + 语音：语音条单独一条发，不和引用/@ 拼在同一�
     assert.deepEqual(recs[0].params.message.map((s) => s.type), ['record'], '语音条必须单独一条，不能带引用/@：' + JSON.stringify(recs[0].params.message.map((s) => s.type)))
   } finally {
     srv.close()
-    await fake.call('/save', { voice: { engine: 'windows' } })
+    await fake.call('/save', { voice: { engine: process.platform === 'win32' ? 'windows' : 'edge' } })
   }
 })
 
@@ -537,7 +537,7 @@ test('语音条不把 QQ 表情/emoji 念出来（face 标签和 emoji 在 TTS �
     assert.doesNotMatch(spoken, /呲牙|face:|😁|在读/, '表情标签和 emoji 不能念出来：' + spoken)
   } finally {
     srv.close()
-    await fake.call('/save', { voice: { engine: 'windows' } })
+    await fake.call('/save', { voice: { engine: process.platform === 'win32' ? 'windows' : 'edge' } })
   }
 })
 
@@ -682,7 +682,7 @@ test('本地 CosyVoice：裸 PCM 包成 WAV 发出语音', async () => {
   await fake.call('/save', { voice: { engine: 'cosyvoice', cosyvoice: { url: `http://127.0.0.1:${srv.address().port}`, spkId: '中文女' } } })
   const r = (await fake.call('/voice/test', { text: '你好呀' })).json()
   srv.close()
-  await fake.call('/save', { voice: { engine: 'windows' } })
+  await fake.call('/save', { voice: { engine: process.platform === 'win32' ? 'windows' : 'edge' } })
   assert.equal(r.ok, true, r.message)
   assert.equal(r.engine, 'cosyvoice')
   assert.equal(got.url, '/inference_sft')
