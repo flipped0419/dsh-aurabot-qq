@@ -78,6 +78,33 @@ test('点歌前置检查：没打开、没装好、没说歌名', () => {
   assert.match(st.message, /导入/)
 })
 
+test('整段远程处理只要求本机 FFmpeg，不要求 Python、分离模型或本地音色', () => {
+  const root = mkdtempSync(join(tmpdir(), 'rvc-remote-full-'))
+  const ffmpeg = join(root, 'ffmpeg')
+  writeFileSync(ffmpeg, 'placeholder')
+  const old = process.env.FFMPEG_PATH
+  process.env.FFMPEG_PATH = ffmpeg
+  try {
+    const config = normalize({ song: { enabled: true, root }, local: { songProcess: true } })
+    const local = { active: (slot) => slot === 'songProcess' }
+    const instance = studio.createSongStudio({
+      getConfig: () => config, local,
+      log: { info() {}, warn() {}, debug() {} },
+      sendVoiceFile: async () => {},
+    })
+    const status = instance.status()
+    assert.equal(status.localSongProcess, true)
+    assert.equal(status.ready, true)
+    assert.equal(status.parts.python, false)
+    assert.equal(status.parts.separator, false)
+    assert.equal(status.parts.ffmpeg, true)
+    assert.match(status.message, /远程整段处理/)
+  } finally {
+    if (old === undefined) delete process.env.FFMPEG_PATH
+    else process.env.FFMPEG_PATH = old
+  }
+})
+
 test('/sing：歌名和变调', async () => {
   const calls = []
   const deps = { getConfig: () => normalize({}), setConfig() {}, song: { request: (o) => { calls.push(o); return { ok: true, message: '开始准备' } } } }
