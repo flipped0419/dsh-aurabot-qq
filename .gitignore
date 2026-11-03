@@ -1,3 +1,6 @@
 node_modules/
 *.log
 *.tmp-*
+
+# Real InstaBox Worker credentials must never be committed.
+rvc-worker.env
