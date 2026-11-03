@@ -68,6 +68,30 @@ test('点歌前置检查：没打开、没装好、没说歌名', () => {
   assert.match(st.message, /导入/)
 })
 
+test('远程整段翻唱：无需本地音色、人声分离或 Python，只需要 FFmpeg', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aurabot-full-song-'))
+  const ffmpeg = join(root, 'ffmpeg')
+  writeFileSync(ffmpeg, 'placeholder')
+  const old = process.env.FFMPEG_PATH
+  process.env.FFMPEG_PATH = ffmpeg
+  try {
+    const config = normalize({ song: { enabled: true, root }, local: { songProcess: true } })
+    const studioInstance = studio.createSongStudio({
+      getConfig: () => config, local: { active: (slot) => slot === 'songProcess' },
+      log: { info() {}, warn() {}, debug() {} }, sendVoiceFile: async () => {},
+    })
+    const st = studioInstance.status()
+    assert.equal(st.localSongProcess, true)
+    assert.equal(st.ready, true)
+    assert.equal(st.parts.python, false)
+    assert.equal(st.parts.separator, false)
+    assert.equal(st.parts.ffmpeg, true)
+  } finally {
+    if (old === undefined) delete process.env.FFMPEG_PATH
+    else process.env.FFMPEG_PATH = old
+  }
+})
+
 test('/sing：歌名和变调', async () => {
   const calls = []
   const deps = { getConfig: () => normalize({}), setConfig() {}, song: { request: (o) => { calls.push(o); return { ok: true, message: '开始准备' } } } }
