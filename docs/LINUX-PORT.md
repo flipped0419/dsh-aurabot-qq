@@ -49,3 +49,9 @@
 - InstaBox 端已部署 CPU RVC Worker，腾讯云通过 Private HTTPS 访问；`/health` 与 `/v1/models` 双层鉴权均返回 HTTP 200。
 - 13.91 秒 WAV 从腾讯云上传到 InstaBox，CPU 推理后成功轮询并下载 40 kHz 单声道 WAV（约 1.1 MB）。
 - Linux 分支新增远程换声模板，密钥只放在 Aurabot 数据目录 `local/rvc-worker.env`，不入库。QQ 完整翻唱、真实音色和音质验收仍待完成。
+
+## 2026-11-03：远程歌曲分离＋换声扩展（代码阶段）
+
+- `local.songProcess` 新增（默认关闭），`song-process.mjs` 可接收已截取的完整歌曲片段，并回传 `{vocals, instrumental}` 两个结果路径。
+- 当此扩展启用时，跳过腾讯云的 audio-separator 和单独的换声接口；原路径完整保留，可以随时切回。
+- InstaBox 需要新 `/v1/song-jobs` 协议及 BS-RoFormer CPU 分离模型。尚未在 InstaBox 真实执行分离，也尚未在腾讯云生产启用；本次改动只提交并测试 GitHub 源码。
