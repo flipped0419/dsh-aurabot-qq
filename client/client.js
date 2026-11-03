@@ -1751,6 +1751,8 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
         inp.onchange = () => inp.files && upload(inp.files)
         inp.click()
       }
+      if (s.localSong || s.localSongProcess) return h(Card, { title: '远程音色模型', desc: '换声由外部接口接管，.pth 模型保存在 InstaBox Worker，无需上传腾讯云。模型通过 local/rvc-worker.env 的 RVC_MODEL 设置。' },
+        h('div', { className: 'ab-note' }, '人声分离和 RVC 推理可以交给 InstaBox；本机只需 FFmpeg。'))
       return h(Card, { title: '音色模型', desc: '插件不自带音色。把你有权使用的 RVC 模型导进来：.pth（可以带 .index），或者装着它们的 zip。只存在本机。自己训练的是 so-vits-svc 之类别的模型、或者想用自己的推理参数？去「本地接口」页接「翻唱换声」。' },
         h('div', {
           className: 'ab-drop' + (over ? ' over' : ''), role: 'button', tabIndex: 0,
@@ -1837,6 +1839,9 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
         return () => clearInterval(t)
       }, [s && s.install.running, s && Boolean(s.current), s && s.queue.length])
       if (!s) return h(Empty, { icon: '⏳', text: '加载中…' })
+      const localSong = Boolean(s.localSong)
+      const localSongProcess = Boolean(s.localSongProcess)
+      const remoteMode = localSong || localSongProcess
       const search = async () => { if (!q.trim()) return; setFound(null); const r = await get('/song/search?q=' + encodeURIComponent(q)); setFound(r.list || []); if (!r.ok) toast(r.message, 'err') }
       const sing = async (song) => { const r = await post('/song/request', { songId: song.id, song: song.name, pitch }); toast(r.message, r.ok ? 'ok' : 'err'); load() }
       const voices = s.voices.map((v) => ({ value: v.id, label: v.id, desc: v.hasIndex ? '带 .index' : '' }))
@@ -1844,16 +1849,16 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
         h(Card, { title: '翻唱', right: f.sw('song.enabled'), desc: '让她用自己的声音唱歌：点歌 → 从网易云下载 → 分离人声和伴奏 → 用 RVC 换成她的声音 → 混音 → 发语音条。主人在 QQ 里说「唱首歌」，或者发 /sing 歌名 都行。' },
           h('div', { className: cx('ab-note', s.ready ? '' : 'warn') }, s.message),
           h('div', { className: 'ab-checks', style: { marginTop: 12 } },
-            SONG_PARTS.map(([k, label]) => h('div', { key: k, className: cx('ab-check', s.parts[k] && 'done') }, h('i', null, s.parts[k] ? '✓' : '·'), label)),
-            h('div', { className: cx('ab-check', s.voices.length && 'done'), title: s.voices.map((v) => v.id).join('、') }, h('i', null, s.voices.length ? '✓' : '·'), s.voices.length ? '音色模型 ×' + s.voices.length : '音色模型（在下面导入）')),
-          s.install.running ? null : h('div', { style: { marginTop: 12 } },
+            (localSongProcess ? SONG_PARTS.filter(([k]) => k === 'ffmpeg') : localSong ? SONG_PARTS.filter(([k]) => !['applio', 'weights'].includes(k)) : SONG_PARTS).map(([k, label]) => h('div', { key: k, className: cx('ab-check', s.parts[k] && 'done') }, h('i', null, s.parts[k] ? '✓' : '·'), label)),
+            h('div', { className: cx('ab-check', (remoteMode || s.voices.length) && 'done'), title: remoteMode ? '由 InstaBox Worker 提供' : s.voices.map((v) => v.id).join('、') }, h('i', null, (remoteMode || s.voices.length) ? '✓' : '·'), remoteMode ? '远程音色模型' : s.voices.length ? '音色模型 ×' + s.voices.length : '音色模型（在下面导入）')),
+          s.install.running ? null : remoteMode ? h('div', { className: 'ab-note', style: { marginTop: 12 } }, localSongProcess ? 'InstaBox 已接管人声分离和 RVC，腾讯云只需要 FFmpeg。' : 'InstaBox 接管 RVC 换声，腾讯云仍需要人声分离和 FFmpeg。') : h('div', { style: { marginTop: 12 } },
             h(Row, { label: '装到哪里', hint: '装完约 8 GB，音色模型也放这里。改了要先保存设置再点安装' }, h(RootPicker, { draft, setDraft, s })),
             h(Row, { label: '下载源', hint: '自动：安装前先测一下，官方源慢就用国内镜像（阿里云 / 南京大学 / npmmirror）' },
               h(Select, { value: draft.song.pypiMirror || 'auto', width: 220, onChange: (v) => setDraft(setPath(draft, 'song.pypiMirror', v)), options: [{ value: 'auto', label: '自动（推荐）' }, { value: 'cn', label: '一直用国内镜像' }, { value: 'off', label: '只用官方源' }] }))),
           h('div', { className: 'ab-flex', style: { marginTop: 12 } },
-            h(Btn, { kind: 'primary', small: true, disabled: s.install.running || (draft.song.root || '') !== (st.config.song.root || ''), onClick: async () => { const r = await post('/song/install'); toast(r.message); setTimeout(load, 800) } },
-              s.install.running ? h(Fragment, null, h('i', { className: 'ab-spin' }), ' 正在安装…') : Object.values(s.parts).every(Boolean) ? '重新检查 / 修复安装' : '一键安装'),
-            h('span', { className: 'ab-muted ab-small' }, (draft.song.root || '') !== (st.config.song.root || '') ? '安装位置改了，先保存设置' : '需要 NVIDIA 显卡；装在 ' + s.root)),
+            h(Btn, { kind: 'primary', small: true, disabled: remoteMode || s.install.running || (draft.song.root || '') !== (st.config.song.root || ''), onClick: async () => { const r = await post('/song/install'); toast(r.message); setTimeout(load, 800) } },
+              remoteMode ? '远程模式，无需本地安装' : s.install.running ? h(Fragment, null, h('i', { className: 'ab-spin' }), ' 正在安装…') : Object.values(s.parts).every(Boolean) ? '重新检查 / 修复安装' : '一键安装'),
+            h('span', { className: 'ab-muted ab-small' }, remoteMode ? '远程 Worker 负责模型推理' : (draft.song.root || '') !== (st.config.song.root || '') ? '安装位置改了，先保存设置' : '需要 NVIDIA 显卡；装在 ' + s.root)),
           s.install.running ? h(InstallProgress, { inst: s.install }) : null,
           s.install.ok === true && !s.install.running ? h('div', { className: 'ab-note', style: { marginTop: 8 } }, '✓ ' + s.install.message) : null,
           s.install.log.length ? h('details', { style: { marginTop: 8 } }, h('summary', { className: 'ab-muted ab-small', style: { cursor: 'pointer' } }, '详细日志'),
@@ -1867,9 +1872,9 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
         ),
         h(VoiceImport, { s, toast, onChange: load }),
         h(Card, { title: '声音', desc: '用哪个音色唱、默认变调和语音条的长度。' },
-          h(Row, { label: '音色' }, voices.length ? h(Select, { value: draft.song.voice || (voices[0] && voices[0].value), options: voices, onChange: (v) => setDraft(setPath(draft, 'song.voice', v)) }) : h('span', { className: 'ab-muted' }, '还没有模型')),
+          h(Row, { label: '音色' }, remoteMode ? h('span', { className: 'ab-muted' }, '由 InstaBox RVC_MODEL 配置') : voices.length ? h(Select, { value: draft.song.voice || (voices[0] && voices[0].value), options: voices, onChange: (v) => setDraft(setPath(draft, 'song.voice', v)) }) : h('span', { className: 'ab-muted' }, '还没有模型')),
           h(Row, { label: '默认变调', hint: '她自己点歌时会按原唱男声 / 女声定，这里是你在面板里试唱时的默认值' }, f.range('song.pitch', -12, 12, 1, (v) => (v > 0 ? '+' : '') + v + ' 半音')),
-          h(Row, { label: '语音条最长', hint: '歌比这个长就截一段' }, f.range('song.maxVoiceSec', 30, 300, 10, (v) => v + ' 秒')),
+          h(Row, { label: '语音条最长', hint: '歌比这个长就截一段' }, f.range('song.maxVoiceSec', 30, localSongProcess ? 180 : 300, 10, (v) => v + ' 秒')),
           h(Row, { label: '截哪一段' }, f.choices('song.clipStart', [{ value: 'auto', label: '副歌附近', desc: '从全曲大约 30% 的地方开始' }, { value: 'head', label: '从头开始' }])),
           h(Row, { label: '人声音量' }, f.range('song.vocalVolume', 0.2, 2, 0.05, (v) => Math.round(v * 100) + '%')),
           h(Row, { label: '伴奏音量' }, f.range('song.instVolume', 0.1, 2, 0.05, (v) => Math.round(v * 100) + '%')),
