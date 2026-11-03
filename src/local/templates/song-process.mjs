@@ -3,7 +3,8 @@
 // 不需要在腾讯云安装 audio-separator、PyTorch 或 RVC；模型在 InstaBox。
 // Node.js 20+，只使用内置 fetch / FormData / Blob，不需要 npm install。
 
-import { readFileSync, writeFile, mkdir } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
