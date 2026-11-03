@@ -74,7 +74,7 @@ export const DEFAULTS = {
     visibility: 'all', // all | self（仅自己可见）
   },
   // 本地接口：数据目录 local/ 里的脚本接管这几项（文件要在、开关要开）
-  local: { tts: false, image: false, song: false, asr: false },
+  local: { tts: false, image: false, song: false, songProcess: false, asr: false },
   bili: {
     enabled: false,
     sessdata: '', // B 站 Cookie 里的 SESSDATA（登录凭证）
@@ -214,7 +214,7 @@ export function normalize(raw) {
   q.intervalMin = num(q.intervalMin, 30, 5, 1440)
   c.mood.halfLifeHours = num(c.mood.halfLifeHours, 3, 0.25, 72)
   c.mood.judge = bool(c.mood.judge, false)
-  for (const k of ['tts', 'image', 'song', 'asr']) c.local[k] = bool(c.local[k], false)
+  for (const k of ['tts', 'image', 'song', 'songProcess', 'asr']) c.local[k] = bool(c.local[k], false)
   const b = c.bili
   Object.assign(b, splitBiliCookie(b))
   for (const k of ['enabled', 'autoBrowse', 'comment', 'reply', 'shareToOwner', 'like']) b[k] = bool(b[k], DEFAULTS.bili[k])
