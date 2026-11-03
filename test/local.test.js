@@ -19,7 +19,7 @@ before(async () => {
 })
 
 test('默认都关着；生成模板（带说明，不覆盖已有的）', () => {
-  assert.deepEqual(cfg.local, { tts: false, image: false, song: false, asr: false })
+  assert.deepEqual(cfg.local, { tts: false, image: false, song: false, songProcess: false, asr: false })
   const local = L.createLocal({ getConfig: () => cfg, log })
   assert.equal(local.active('tts'), false)
   const r = local.template('tts')
@@ -34,6 +34,22 @@ test('默认都关着；生成模板（带说明，不覆盖已有的）', () =>
   assert.equal(st.exists, true)
   assert.match(st.prompt, /README-本地接口\.md/)
   assert.match(st.prompt, /只改这一个脚本/)
+})
+
+test('整段翻唱：本地接口模板和双声轨约定', async () => {
+  const local = L.createLocal({ getConfig: () => cfg, log })
+  const r = local.template('songProcess')
+  assert.equal(r.ok, true)
+  assert.match(readFileSync(r.path, 'utf8'), /outputInstrumental/)
+  assert.ok(existsSync(join(local.dir(), 'rvc-worker.env.example')))
+  assert.equal(local.active('songProcess'), false)
+  cfg.local.songProcess = true
+  assert.equal(local.active('songProcess'), true)
+  writeFileSync(r.path, `export const cacheKey = () => 'full:unit'
+export default async ({ outputVocals, outputInstrumental }) => ({ vocals: outputVocals, instrumental: outputInstrumental })`)
+  assert.equal(await local.identity('songProcess'), 'full:unit')
+  assert.deepEqual(await local.call('songProcess', { outputVocals: '/v.wav', outputInstrumental: '/i.wav' }), { vocals: '/v.wav', instrumental: '/i.wav' })
+  cfg.local.songProcess = false
 })
 
 test('开关打开就接管；脚本改完不用重启；出错有记录', async () => {
