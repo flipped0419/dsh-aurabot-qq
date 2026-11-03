@@ -19,7 +19,7 @@ before(async () => {
 })
 
 test('默认都关着；生成模板（带说明，不覆盖已有的）', () => {
-  assert.deepEqual(cfg.local, { tts: false, image: false, song: false, asr: false })
+  assert.deepEqual(cfg.local, { tts: false, image: false, song: false, songProcess: false, asr: false })
   const local = L.createLocal({ getConfig: () => cfg, log })
   assert.equal(local.active('tts'), false)
   const r = local.template('tts')
@@ -44,6 +44,23 @@ test('翻唱模板：生成 InstaBox 配置示例，并可按远程模型身份�
   assert.match(readFileSync(join(local.dir(), 'rvc-worker.env.example'), 'utf8'), /RVC_WORKER_KEY=/)
   writeFileSync(local.pathOf('song'), "export const cacheKey = async () => 'instabox:Fp231.pth:pm'\nexport default async () => ''")
   assert.equal(await local.identity('song'), 'instabox:Fp231.pth:pm')
+})
+
+test('整段翻唱接口：模板和双轨返回约定', async () => {
+  const local = L.createLocal({ getConfig: () => cfg, log })
+  const template = local.template('songProcess')
+  assert.equal(template.ok, true)
+  assert.match(readFileSync(template.path, 'utf8'), /outputInstrumental/)
+  assert.ok(existsSync(join(local.dir(), 'rvc-worker.env.example')))
+  assert.equal(local.active('songProcess'), false)
+  cfg.local.songProcess = true
+  assert.equal(local.active('songProcess'), true)
+  writeFileSync(local.pathOf('songProcess'), `export const cacheKey = () => "full-song-test"
+export default async function ({ input, outputVocals, outputInstrumental }) { return { vocals: outputVocals, instrumental: outputInstrumental } }`)
+  assert.equal(await local.identity('songProcess'), 'full-song-test')
+  const tracks = await local.call('songProcess', { input: '/test.mp3', outputVocals: '/v.wav', outputInstrumental: '/i.wav' })
+  assert.deepEqual(tracks, { vocals: '/v.wav', instrumental: '/i.wav' })
+  cfg.local.songProcess = false
 })
 
 test('开关打开就接管；脚本改完不用重启；出错有记录', async () => {
