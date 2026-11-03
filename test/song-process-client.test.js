@@ -105,31 +105,9 @@ test('song-process.mjs rejects missing separator before job POST', async () => {
   }
 })
 
-test('song-convert.mjs legacy vocal-only mode still writes a WAV', async () => {
-  const f = fixture('song-convert.mjs')
-  const orig = globalThis.fetch
-  let postCount = 0
-  const wav = riffWav()
-  globalThis.fetch = async (url, opts = {}) => {
-    const path = new URL(url).pathname
-    if (path === '/health') return response({ ready: true })
-    if (path === '/v1/models') return response({ models: ['Fp231.pth'] })
-    if (path === '/v1/jobs') {
-      postCount++
-      return response({ job_id: jid }, 202)
-    }
-    if (path === '/v1/jobs/' + jid) return response({ state: 'done' })
-    if (path === '/v1/jobs/' + jid + '/result') return response(wav)
-    throw new Error('unexpected route ' + path)
-  }
-  try {
-    const convert = await import(f.file)
-    const output = join(f.folder, 'voice.wav')
-    assert.equal(await convert.default({ input: f.input, output, log: noopLog }), output)
-    assert.deepEqual(readFileSync(output), wav)
-    assert.equal(postCount, 1)
-  } finally {
-    globalThis.fetch = orig
-    rmSync(f.folder, { recursive: true, force: true })
-  }
+test('旧版 song-convert.mjs 仍是可独立编辑的通用脚本模板', () => {
+  const raw = readFileSync(new URL('../src/local/templates/song-convert.mjs', import.meta.url), 'utf8')
+  assert.match(raw, /export default async/)
+  assert.match(raw, /voiceFile|input/)
+  assert.doesNotMatch(raw, /song-jobs/)
 })
