@@ -763,7 +763,9 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
   async function cutFirst(song, dir) {
     const c = cfg()
     const dur = await ffprobeDuration(song)
-    const w = clipWindow(dur, Number(c.maxVoiceSec) || 120, c.clipStart)
+    // The InstaBox song endpoint rejects clips longer than 180 s; leave 1 s for encoder rounding.
+    const remoteMax = local?.active('songProcess') ? 179 : Infinity
+    const w = clipWindow(dur, Math.min(Number(c.maxVoiceSec) || 120, remoteMax), c.clipStart)
     if (!dur || (w.start === 0 && w.length >= dur)) return { file: song, cut: false, length: dur }
     const out = join(dir, 'part.wav')
     await run(P().ffmpeg, ['-y', '-hide_banner', '-loglevel', 'error', '-ss', String(w.start), '-t', String(w.length), '-i', song, '-ar', '44100', out], { log })
