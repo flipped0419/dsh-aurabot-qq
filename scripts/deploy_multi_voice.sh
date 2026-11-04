@@ -85,7 +85,11 @@ console.log('PASS: all six Worker models accessible through private HTTPS')
 NODE
 
 echo 'PREPARE: fetching verified Aurabot source as an isolated worktree'
-git -c safe.directory="$OLD" -C "$OLD" fetch --quiet --no-tags origin "$REF"
+if ! git -c safe.directory="$OLD" -C "$OLD" fetch --quiet --no-tags origin "$REF"; then
+  echo 'Direct GitHub fetch failed; retrying through existing 127.0.0.1:7890 proxy'
+  HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 \
+    git -c safe.directory="$OLD" -C "$OLD" fetch --quiet --no-tags origin "$REF"
+fi
 git -c safe.directory="$OLD" -C "$OLD" cat-file -e "${PIN}^{commit}" ||
   fail "expected commit $PIN not fetched"
 git -c safe.directory="$OLD" -C "$OLD" merge-base --is-ancestor "$PIN" FETCH_HEAD ||
