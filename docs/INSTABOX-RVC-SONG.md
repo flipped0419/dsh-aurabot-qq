@@ -4,7 +4,7 @@
 
 此方案已适配 **Aurabot 1.1.24** 的 `upgrade/aurabot-1.1.24` 分支，提交源码尚未自动部署至腾讯云生产。原 1.1.24 已验收的聊天、TTS、QQ 消息、登录态和配置全部保留，不要直接运行旧 `linux-port` 版本覆盖生产。
 
-InstaBox 4C8G 使用独立 Worker 提供 `/v1/song-jobs`（分离 + 换声、两个 WAV 下载），原 `/v1/jobs` 换声接口保留。InstaBox 已通过完整 `/v1/song-jobs` 实机测试（双轨下载通过）。2026-11-04 对同一 15 秒歌曲片段测得：MDX HQ5 分离 9.105 秒但人声伴奏残留明显；BS-RoFormer 276.263 秒；MelBand RoFormer 68.459 秒。MelBand 与 BS 的 RVC RMVPE 混音试听均无明显电音，最终确定 MelBand + RMVPE。**该配置尚未在 InstaBox 生产 Worker 切换验收，腾讯云 QQ 端到端仍待验收。**
+InstaBox 4C8G 使用独立 Worker 提供 `/v1/song-jobs`（分离 + 换声、两个 WAV 下载），原 `/v1/jobs` 换声接口保留。InstaBox 已通过完整 `/v1/song-jobs` 实机测试（双轨下载通过）。2026-11-04 对同一 15 秒歌曲片段测得：MDX HQ5 分离 9.105 秒但人声伴奏残留明显；BS-RoFormer 276.263 秒；MelBand RoFormer 68.459 秒。MelBand 与 BS 的 RVC RMVPE 混音试听均无明显电音，最终确定 MelBand + RMVPE。**InstaBox 生产 Worker 已切换 `mel-vocals` 并通过 30 秒真实歌曲的 RMVPE 全链路 API 实测：139.3 秒，双声轨均可下载；腾讯云 QQ 端到端仍待验收。**
 
 ## 数据流
 
@@ -34,9 +34,9 @@ InstaBox 4C8G 使用独立 Worker 提供 `/v1/song-jobs`（分离 + 换声、两
 - 如新 Worker 影响旧 RVC 服务：恢复备份 `/opt/rvc-worker/app.py.before-song` 到 `/opt/rvc-worker/app.py` 并重启 `rvc-worker`；InstaBox RVC 本身和 private 端口不变。
 - 如新 1.1.24 构建有异常：切回原 `/opt/aurabot/releases/1.1.24` symlink 并重启现有 `aurabot-dsh.service`，不更改数据目录或 SnowLuma 容器。
 
-## 分离模型切换（正式配置待实机验收）
+## 分离模型切换（InstaBox 已完成验收）
 
-Worker 仓库 `flipped0419/aurabot-rvc` 提供 `RVC_SEPARATOR_PROFILE` 三种固定模型：`mel-vocals`（试听选中）、`bs-roformer`（高质量备用）、`mdx-hq5`（速度对比）。**代码默认仍是 BS-RoFormer，服务器上一次确认仍设置为 `mdx-hq5`，不意味着已切换。** 生产切换必须先验证 `/data/rvc-worker/separator-models/vocals_mel_band_roformer.ckpt` 存在，备份 `/opt/rvc-worker/app.py` 与 `/etc/rvc-worker.env`，更新 Worker 代码，设置 `RVC_SEPARATOR_PROFILE=mel-vocals` 并重启，然后检查 `/health` 的 `separator_profile=mel-vocals`、`separator_ready=true`，执行独立的 30 秒歌曲 `tests/smoke_song_local.py --f0-method rmvpe`，确保生成两个可下载声轨。回滚时恢复两个备份并重启，不删除模型文件。
+Worker 仓库 `flipped0419/aurabot-rvc` 提供 `RVC_SEPARATOR_PROFILE` 三种固定模型：`mel-vocals`（试听选中）、`bs-roformer`（高质量备用）、`mdx-hq5`（速度对比）。**代码默认仍是 BS-RoFormer，但 InstaBox 服务器现有配置明确设置 `RVC_SEPARATOR_PROFILE=mel-vocals`，2026-11-04 已验证生产 Worker 的 `/health.separator_profile=mel-vocals`。** 此前生产切换已先验证 `/data/rvc-worker/separator-models/vocals_mel_band_roformer.ckpt` 存在，备份 `/opt/rvc-worker/app.py` 与 `/etc/rvc-worker.env`，更新 Worker 代码，设置 `RVC_SEPARATOR_PROFILE=mel-vocals` 并重启，已检查 `/health` 的 `separator_profile=mel-vocals`、`separator_ready=true`，并完成独立 30 秒歌曲 `tests/smoke_song_local.py --f0-method rmvpe` 全链路测试：`PASSED full-song API in 139.3 s`，两条 WAV 下载通过。回滚时恢复两个备份并重启，不删除模型文件。
 
 Aurabot 侧的 `song-process.mjs` 默认用 RMVPE；`rvc-worker.env` 需要写入 `RVC_F0_METHOD=rmvpe`、`RVC_SEPARATOR_PROFILE=mel-vocals`，脚本对照 Worker 的实际 `separator_profile`，不一致时在提交任务前中止。两个参数都纳入翻唱缓存键，切换模型不会复用旧的 MDX 缓存。旧的 `/v1/jobs` 纯 RVC 仍保留 PM 默认值。不要让私人配置进源码或项目背景。
 
