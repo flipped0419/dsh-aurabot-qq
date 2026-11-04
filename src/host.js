@@ -19,7 +19,7 @@ import { registerSecret, redact } from './core/redact.js'
 import { createOneBotClient } from './onebot/client.js'
 import { createSnowLumaManager, DOWNLOAD_PAGE } from './snowluma/manager.js'
 import { createHub, workspaceDirOf } from './chat/hub.js'
-import { createLocal, fileOf, toImageBuffer, SLOTS } from './local/local.js'
+import { createLocal, fileOf, toImageBuffer, validSlot } from './local/local.js'
 import { createGroupRoles } from './chat/group-roles.js'
 import { defaultModel, askModel, modelReasoning, modelVision, clearReasoningCache, clearVisionCache } from './core/llm.js'
 import { mimeOf } from './chat/inbound.js'
@@ -666,7 +666,7 @@ export function apply(ctx) {
   route('/local/status', async () => ({ ok: true, dir: local.dir(), list: local.status() }))
   route('/local/template', async (req) => {
     const slot = String((await readBody(req)).slot || '')
-    if (!local.pathOf || !Object.hasOwn(SLOTS, slot)) return { ok: false, message: '没有这一项' }
+    if (!local.pathOf || !validSlot(slot)) return { ok: false, message: '没有这一项' }
     return local.template(slot)
   })
   route('/local/open', async () => openFolder(local.dir()))
