@@ -61,6 +61,18 @@ export default async ({ outputVocals, outputInstrumental }) => ({ vocals: output
   cfg.local.songProcess = false
 })
 
+test('远程音色列表遵循原版本地接口开关与默认项顺序', () => {
+  const local = L.createLocal({ getConfig: () => cfg, log })
+  cfg.local.songProcess = true
+  local.template('songProcess')
+  writeFileSync(join(local.dir(), 'rvc-voices.json'), JSON.stringify({
+    default: '可可', voices: { '草莓': 'strawberry.pth', '可可': 'coco.pth' },
+  }))
+  assert.deepEqual(local.remoteVoices(), ['可可', '草莓'])
+  cfg.local.songProcess = false
+  assert.deepEqual(local.remoteVoices(), [])
+})
+
 test('开关打开就接管；脚本改完不用重启；出错有记录', async () => {
   const local = L.createLocal({ getConfig: () => cfg, log })
   cfg.local.tts = true
