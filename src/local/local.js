@@ -18,6 +18,9 @@ export const SLOTS = {
   asr: { file: 'asr.mjs', title: '语音识别', timeoutMs: 60_000, example: 'FunASR / faster-whisper 的本地服务（http://127.0.0.1:8000）' },
 }
 
+/** 后端路由和本地接口统一使用同一插槽列表，避免新功能漏进白名单。 */
+export const validSlot = (slot) => Object.hasOwn(SLOTS, slot)
+
 /** 生图脚本的各种返回值统一成 Buffer。 */
 export async function toImageBuffer(r) {
   if (Buffer.isBuffer(r)) return r
