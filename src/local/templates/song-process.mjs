@@ -25,7 +25,7 @@ function readSettings() {
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1)
     values[key] = value
   }
-  for (const key of ['RVC_BASE_URL', 'RVC_PORT_TOKEN', 'RVC_WORKER_KEY', 'RVC_MODEL', 'RVC_F0_METHOD']) {
+  for (const key of ['RVC_BASE_URL', 'RVC_PORT_TOKEN', 'RVC_WORKER_KEY', 'RVC_MODEL', 'RVC_F0_METHOD', 'RVC_SEPARATOR_PROFILE']) {
     if (process.env[key] !== undefined) values[key] = process.env[key]
   }
   const base = String(values.RVC_BASE_URL || '').trim()
@@ -38,14 +38,16 @@ function readSettings() {
   if (!portToken || !workerKey) throw new Error('rvc-worker.env 缺少 RVC_PORT_TOKEN 或 RVC_WORKER_KEY')
   const model = String(values.RVC_MODEL || 'Fp231.pth').trim()
   if (!model.endsWith('.pth') || basename(model) !== model) throw new Error('RVC_MODEL 必须是模型目录中的 .pth 文件名，不能包含路径')
-  const f0Method = String(values.RVC_F0_METHOD || 'pm').trim()
+  const f0Method = String(values.RVC_F0_METHOD || 'rmvpe').trim()
   if (!['pm', 'rmvpe'].includes(f0Method)) throw new Error('RVC_F0_METHOD 只能是 pm 或 rmvpe')
-  return { base: url.origin + url.pathname.replace(/\/$/, ''), portToken, workerKey, model, f0Method }
+  const separatorProfile = String(values.RVC_SEPARATOR_PROFILE || 'mel-vocals').trim()
+  if (!['mel-vocals', 'bs-roformer', 'mdx-hq5'].includes(separatorProfile)) throw new Error('RVC_SEPARATOR_PROFILE 只能是 mel-vocals、bs-roformer 或 mdx-hq5')
+  return { base: url.origin + url.pathname.replace(/\/$/, ''), portToken, workerKey, model, f0Method, separatorProfile }
 }
 
 export async function cacheKey() {
   const c = readSettings()
-  return `instabox-song:${c.model}:${c.f0Method}:bs-roformer-v1`
+  return `instabox-song:${c.model}:${c.f0Method}:${c.separatorProfile}:v2`
 }
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -88,6 +90,9 @@ export default async function processSong({ input, outputVocals, outputInstrumen
   const health = await (await get('/health', c)).json()
   if (!health.ready) throw new Error('InstaBox RVC Worker 尚未就绪')
   if (!health.separator_ready) throw new Error('InstaBox 尚未完成 audio-separator 模型安装或 Worker 升级')
+  if (health.separator_profile !== c.separatorProfile) {
+    throw new Error(`InstaBox 当前分离模型为 ${health.separator_profile || '未知'}，但配置希望使用 ${c.separatorProfile}；请先同步 Worker 与 rvc-worker.env，避免误用缓存或混合不同模型`)
+  }
   const available = await (await get('/v1/models', c)).json()
   if (!Array.isArray(available.models) || !available.models.includes(c.model)) {
     throw new Error(`InstaBox 上没有模型 ${c.model}；当前模型：${(available.models || []).join('、') || '无'}`)
