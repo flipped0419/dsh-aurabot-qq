@@ -45,6 +45,19 @@ export function createLocal({ getConfig, log }) {
   const pathOf = (slot) => join(dir(), SLOTS[slot].file)
   const last = {} // slot → { ok, at, message }
 
+  /** 只读取非敏感音色名称，不向状态接口泄露 Worker 密钥。 */
+  function remoteVoices() {
+    if (!active('songProcess')) return []
+    try {
+      const config = JSON.parse(readFileSync(join(dir(), 'rvc-voices.json'), 'utf8'))
+      if (!config?.voices || typeof config.voices !== 'object' || Array.isArray(config.voices)) return []
+      const names = Object.keys(config.voices).filter((name) => /^[\\p{L}\\p{N}_.-]{1,32}$/u.test(name)).slice(0, 24)
+      return config.default && names.includes(config.default)
+        ? [config.default, ...names.filter((name) => name !== config.default)]
+        : names
+    } catch { return [] }
+  }
+
   /** 这一项现在由本地脚本接管吗。 */
   function active(slot) {
     return Boolean(getConfig().local?.[slot]) && existsSync(pathOf(slot))
@@ -118,5 +131,5 @@ export function createLocal({ getConfig, log }) {
     }))
   }
 
-  return { active, call, identity, template, status, dir, pathOf }
+  return { active, call, identity, template, status, dir, pathOf, remoteVoices }
 }
