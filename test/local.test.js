@@ -36,6 +36,15 @@ test('默认都关着；生成模板（带说明，不覆盖已有的）', () =>
   assert.match(st.prompt, /只改这一个脚本/)
 })
 
+test('本地接口路由允许 songProcess 且拒绝原型属性', () => {
+  assert.equal(L.validSlot('songProcess'), true)
+  assert.equal(L.validSlot('song'), true)
+  assert.equal(L.validSlot('asr'), true)
+  assert.equal(L.validSlot('constructor'), false)
+  assert.equal(L.validSlot('__proto__'), false)
+  assert.equal(L.validSlot('invalid'), false)
+})
+
 test('整段翻唱：本地接口模板和双声轨约定', async () => {
   const local = L.createLocal({ getConfig: () => cfg, log })
   const r = local.template('songProcess')
