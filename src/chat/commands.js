@@ -185,7 +185,9 @@ export async function runCommand(cmd, msg, deps) {
       if (pitchMatch) { name = pitchMatch[1].trim() }
       if (!selectedVoice) parseVoice()
       if (!name) return '唱哪首？比如 /sing 小幸运 田馥甄 @可可'
-      return deps.song.request({ song: name, pitch: pitchMatch ? Number(pitchMatch[2]) : undefined, voice: selectedVoice || undefined, chatId: msg.chatId }).message
+      const request = { song: name, pitch: pitchMatch ? Number(pitchMatch[2]) : undefined, chatId: msg.chatId }
+      if (selectedVoice) request.voice = selectedVoice
+      return deps.song.request(request).message
     }
     case 'mood':
       return mood ? `现在${mood.label()}` : '心情模块关着'
