@@ -1,0 +1,11 @@
+{
+  "default": "可可",
+  "voices": {
+    "可可": "coco.pth",
+    "草莓": "strawberry.pth",
+    "EEE": "eee.pth",
+    "毛白灵": "maobailing.pth",
+    "肥鱼": "FeiyuVoice-RVC-v1.pth",
+    "Fp231": "Fp231.pth"
+  }
+}
