@@ -69,10 +69,10 @@ export function createLocal({ getConfig, log }) {
   }
 
   // 可选的换声身份：用于把远程模型名 / 推理方式纳入翻唱缓存键。
-  async function identity(slot) {
+  async function identity(slot, voice = '') {
     const mod = await loadModule(slot)
     const value = mod.cacheKey ?? mod.identity ?? mod.default?.cacheKey
-    return String(typeof value === 'function' ? await value() : value ?? '')
+    return String(typeof value === 'function' ? await value(voice) : value ?? '')
   }
 
   async function call(slot, args) {
