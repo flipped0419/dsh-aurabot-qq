@@ -107,8 +107,8 @@ test('song-process.mjs selects Coco as default and isolates voice caches', async
   }
   try {
     const processSong = await import(f.file)
-    assert.match(await processSong.cacheKey(), /coco\\.pth/)
-    assert.match(await processSong.cacheKey('草莓'), /strawberry\\.pth/)
+    assert.match(await processSong.cacheKey(), /coco\.pth/)
+    assert.match(await processSong.cacheKey('草莓'), /strawberry\.pth/)
     assert.notEqual(await processSong.cacheKey(), await processSong.cacheKey('草莓'))
     for (const voice of ['', '草莓']) {
       await processSong.default({
