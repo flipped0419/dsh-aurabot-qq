@@ -51,7 +51,7 @@ export function createLocal({ getConfig, log }) {
     try {
       const config = JSON.parse(readFileSync(join(dir(), 'rvc-voices.json'), 'utf8'))
       if (!config?.voices || typeof config.voices !== 'object' || Array.isArray(config.voices)) return []
-      const names = Object.keys(config.voices).filter((name) => /^[\\p{L}\\p{N}_.-]{1,32}$/u.test(name)).slice(0, 24)
+      const names = Object.keys(config.voices).filter((name) => /^[\p{L}\p{N}_.-]{1,32}$/u.test(name)).slice(0, 24)
       return config.default && names.includes(config.default)
         ? [config.default, ...names.filter((name) => name !== config.default)]
         : names
