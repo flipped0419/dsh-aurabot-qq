@@ -77,11 +77,12 @@ test('远程整段翻唱：无需本地音色、人声分离或 Python，只需�
   try {
     const config = normalize({ song: { enabled: true, root }, local: { songProcess: true } })
     const studioInstance = studio.createSongStudio({
-      getConfig: () => config, local: { active: (slot) => slot === 'songProcess' },
+      getConfig: () => config, local: { active: (slot) => slot === 'songProcess', remoteVoices: () => ['可可', '草莓'] },
       log: { info() {}, warn() {}, debug() {} }, sendVoiceFile: async () => {},
     })
     const st = studioInstance.status()
     assert.equal(st.localSongProcess, true)
+    assert.deepEqual(st.voices.map((v) => v.id), ['可可', '草莓'])
     assert.equal(st.ready, true)
     assert.equal(st.parts.python, false)
     assert.equal(st.parts.separator, false)
