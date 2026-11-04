@@ -446,6 +446,7 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
     // 换声交给本地脚本时，不需要内置的 Applio / 预训练文件 / 音色模型（下载、分离、混音还是插件做）
     const localSong = Boolean(local?.active('song'))
     const localSongProcess = Boolean(local?.active('songProcess'))
+    const remoteNames = localSongProcess ? (local?.remoteVoices?.() || []) : []
     const ready = localSongProcess ? parts.ffmpeg
       : localSong ? ['python', 'separator', 'ffmpeg', 'separatorModel'].every((k) => parts[k])
       : Object.values(parts).every(Boolean) && voices.length > 0
@@ -457,7 +458,9 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
       rootCheck: checkRoot(p.root),
       pypiMirror: cfg().pypiMirror || 'auto',
       parts,
-      voices: voices.map((v) => ({ id: v.id, hasIndex: Boolean(v.index) })),
+      voices: localSongProcess && remoteNames.length
+        ? remoteNames.map((id) => ({ id, hasIndex: false }))
+        : voices.map((v) => ({ id: v.id, hasIndex: Boolean(v.index) })),
       localSong,
       localSongProcess,
       separatorLinks: parts.separatorModel ? [] : separatorLinks(cfg().separatorModel),
@@ -785,11 +788,17 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
     const localSong = Boolean(local?.active('song'))
     const localSongProcess = Boolean(local?.active('songProcess'))
     const voice = listVoices(P().models).find((v) => v.id === (job.voice || c.voice)) || listVoices(P().models)[0]
+    const remoteNames = localSongProcess ? (local?.remoteVoices?.() || []) : []
+    const selectedRemote = localSongProcess && remoteNames.length
+      ? (job.voice || (remoteNames.includes(c.voice) ? c.voice : remoteNames[0])) : ''
+    if (localSongProcess && job.voice && !remoteNames.includes(job.voice)) {
+      throw new Error('没有远程音色「' + job.voice + '」；请在面板「翻唱」查看可用音色')
+    }
     if (!voice && !localSong && !localSongProcess) throw new Error('还没有可用的音色模型')
     // 全流程扩展优先于单独换声扩展，两者同时打开时不重复处理。
-    const cacheIdentity = localSongProcess ? (await local?.identity?.('songProcess') || 'remote-all')
+    const cacheIdentity = localSongProcess ? (await local?.identity?.('songProcess', selectedRemote) || 'remote-all')
       : localSong ? (await local?.identity?.('song') || 'remote-vocals') : voice.id
-    const voiceLabel = localSongProcess ? '远程音色' : voice?.id || (localSong ? '远程音色' : '')
+    const voiceLabel = localSongProcess ? (selectedRemote || '远程音色') : voice?.id || (localSong ? '远程音色' : '')
     const pitch = Number.isFinite(Number(job.pitch)) ? Math.max(-24, Math.min(24, Math.round(Number(job.pitch)))) : Number(c.pitch) || 0
     const dir = join(work(), Date.now().toString(36))
     mkdirSync(dir, { recursive: true })
@@ -812,7 +821,7 @@ export function createSongStudio({ getConfig, log, sendVoiceFile, sendText, onSu
       const outputInstrumental = join(dir, 'instrumental.wav')
       const result = await local.call('songProcess', {
         input: part.file, outputVocals, outputInstrumental, pitch,
-        voice: voice?.id || '', voiceFile: voice?.pth || '', indexFile: voice?.index || '',
+        voice: selectedRemote, voiceFile: '', indexFile: '',
       })
       converted = result?.vocals || outputVocals
       inst = result?.instrumental || outputInstrumental
