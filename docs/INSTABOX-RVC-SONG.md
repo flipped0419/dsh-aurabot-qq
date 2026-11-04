@@ -46,7 +46,7 @@ Aurabot 侧的 `song-process.mjs` 默认用 RMVPE；`rvc-worker.env` 需要写�
 
 非敏感映射文件 `/opt/aurabot/data/local/rvc-voices.json` 由 `src/local/templates/rvc-voices.json.example` 复制，提供「可可」（默认）、草莓、EEE、毛白灵、肥鱼、Fp231 与各自 .pth 文件名。远程脚本仍读取 `rvc-worker.env` 的原有密钥；映射文件不存在时继续采用 `RVC_MODEL=Fp231.pth`。音色名称来自本地接口现有状态返回，面板在现有音色下拉框选择；QQ /sing 原语法不变，新支持 `@可可`、`@草莓` 等单次选择；不同音色不会复用错误缓存。
 
-部署只通过独立新 release（建议 `/opt/aurabot/releases/1.1.24-voices`）构建测试，不覆盖当前生产 `1.1.24-rvc`。生产切换时备份数据目录的 `song-process.mjs`，配置映射表，确认 `/v1/models` 列出相关模型后更新脚本并切换 symlink。回退同时恢复旧 script 与旧 symlink，不改动 Worker 的旧 Fp231。
+部署通过独立新 release（`/opt/aurabot/releases/1.1.24-voices`）构建测试，不覆盖已验收的 `1.1.24-rvc`。2026-11-04 发现 DSH Profile 的 `package.json` Aurabot 声明为 `link:/opt/aurabot/releases/1.1.24`，但 `pnpm-lock.yaml` 的实际版本为 `link:../../../../source`，最终实际链接回到旧版 `/opt/aurabot/source`（Git `e5a9a1f`，版本 1.0.4）；插件更新流程可能暴露或重放了这种旧锁定状态。**不能仅靠 `ln -s` 切换生产**：部署脚本 `scripts/deploy_multi_voice.sh` 在测试后以 `aurabot` 身份调用原生 `dsh plugin --profile web add link:/opt/aurabot/releases/1.1.24-voices`，从源头更新 manifest、pnpm lock、安装链接并统一验证，之后才重启 DSH。失败优先执行同机制 `add link:/opt/aurabot/releases/1.1.24-rvc` 回滚，恢复此前本地翻唱脚本；只有插件管理器故障时才紧急恢复软链接并提示下次更新风险。此前 `1.1.24-rvc` 已真实 QQ 翻唱验收，新多音色发布尚未经过生产验收。
 
 ## 安全与资源
 
