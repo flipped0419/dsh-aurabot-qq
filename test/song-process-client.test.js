@@ -86,6 +86,57 @@ test('song-process.mjs uploads original audio and downloads both WAV tracks', as
   }
 })
 
+test('song-process.mjs selects Coco as default and isolates voice caches', async () => {
+  const f = fixture('song-process.mjs')
+  writeFileSync(join(f.folder, 'rvc-voices.json'), JSON.stringify({
+    default: '可可', voices: { '可可': 'coco.pth', '草莓': 'strawberry.pth' },
+  }))
+  const orig = globalThis.fetch
+  const selected = []
+  globalThis.fetch = async (url, opts = {}) => {
+    const path = new URL(url).pathname
+    if (path === '/health') return response({ ready: true, separator_ready: true, separator_profile: 'mel-vocals' })
+    if (path === '/v1/models') return response({ models: ['Fp231.pth', 'coco.pth', 'strawberry.pth'] })
+    if (path === '/v1/song-jobs') {
+      selected.push(opts.body.get('model'))
+      return response({ job_id: jid, state: 'queued' }, 202)
+    }
+    if (path === '/v1/song-jobs/' + jid) return response({ state: 'done' })
+    if (path.startsWith('/v1/song-jobs/' + jid + '/')) return response(riffWav())
+    throw new Error('unexpected route ' + path)
+  }
+  try {
+    const processSong = await import(f.file)
+    assert.match(await processSong.cacheKey(), /coco\\.pth/)
+    assert.match(await processSong.cacheKey('草莓'), /strawberry\\.pth/)
+    assert.notEqual(await processSong.cacheKey(), await processSong.cacheKey('草莓'))
+    for (const voice of ['', '草莓']) {
+      await processSong.default({
+        input: f.input, outputVocals: join(f.folder, voice + 'v.wav'),
+        outputInstrumental: join(f.folder, voice + 'i.wav'), voice, log: noopLog,
+      })
+    }
+    assert.deepEqual(selected, ['coco.pth', 'strawberry.pth'])
+    await assert.rejects(processSong.cacheKey('不存在'), /未知远程音色/)
+  } finally {
+    globalThis.fetch = orig
+    rmSync(f.folder, { recursive: true, force: true })
+  }
+})
+
+test('song-process.mjs rejects path-traversal voice mapping before upload', async () => {
+  const f = fixture('song-process.mjs')
+  writeFileSync(join(f.folder, 'rvc-voices.json'), JSON.stringify({
+    default: '可可', voices: { '可可': '../bad.pth' },
+  }))
+  try {
+    const mod = await import(f.file)
+    await assert.rejects(mod.cacheKey(), /非法音色/)
+  } finally {
+    rmSync(f.folder, { recursive: true, force: true })
+  }
+})
+
 test('song-process.mjs rejects missing separator before job POST', async () => {
   const f = fixture('song-process.mjs')
   const orig = globalThis.fetch
