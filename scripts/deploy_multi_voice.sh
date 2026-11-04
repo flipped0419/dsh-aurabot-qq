@@ -16,9 +16,12 @@ REF=refs/heads/upgrade/aurabot-1.1.24
 BACKUP_DIR=''
 ROLLBACK_ARMED=0
 
-fail() { echo "FAILED: $*" >&2; exit 1; }
+fail() {
+  echo "FAILED: $*" >&2
+  if (( ROLLBACK_ARMED )); then rollback 1; else exit 1; fi
+}
 rollback() {
-  local rc="$?"
+  local rc="${1:-$?}"
   trap - ERR
   set +e
   if (( ROLLBACK_ARMED )); then
