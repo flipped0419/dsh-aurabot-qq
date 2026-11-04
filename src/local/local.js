@@ -108,6 +108,10 @@ export function createLocal({ getConfig, log }) {
     if (slot === 'song' || slot === 'songProcess') {
       const example = join(dir(), 'rvc-worker.env.example')
       if (!existsSync(example)) copyFileSync(join(TEMPLATES, 'rvc-worker.env.example'), example)
+      if (slot === 'songProcess') {
+        const voiceExample = join(dir(), 'rvc-voices.json.example')
+        if (!existsSync(voiceExample)) copyFileSync(join(TEMPLATES, 'rvc-voices.json.example'), voiceExample)
+      }
     }
     if (existsSync(dest)) return { ok: true, created: false, path: dest, message: '文件已经有了，没覆盖' }
     copyFileSync(join(TEMPLATES, SLOTS[slot].file), dest)
