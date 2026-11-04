@@ -24,7 +24,7 @@ function voiceConfig() {
   }
   const voices = Object.create(null)
   for (const [label, name] of Object.entries(raw.voices)) {
-    if (!/^[\\p{L}\\p{N}_.-]{1,32}$/u.test(label) ||
+    if (!/^[\p{L}\p{N}_.-]{1,32}$/u.test(label) ||
         typeof name !== 'string' || !name.endsWith('.pth') || basename(name) !== name ||
         name === '.pth' || name.length > 100 || Object.keys(voices).length >= 24) {
       throw new Error('rvc-voices.json 中存在非法音色名称或模型文件名')
