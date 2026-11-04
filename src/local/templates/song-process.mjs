@@ -9,6 +9,45 @@ import { basename, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ENV_PATH = fileURLToPath(new URL('./rvc-worker.env', import.meta.url))
+const VOICES_PATH = fileURLToPath(new URL('./rvc-voices.json', import.meta.url))
+
+function voiceConfig() {
+  let raw
+  try { raw = JSON.parse(readFileSync(VOICES_PATH, 'utf8')) }
+  catch (e) {
+    if (e?.code === 'ENOENT') return { default: '', voices: {} } // compatibility with one-model deployment
+    throw new Error('rvc-voices.json 解析失败：' + e.message)
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
+      !raw.voices || typeof raw.voices !== 'object' || Array.isArray(raw.voices)) {
+    throw new Error('rvc-voices.json 必须包含 voices 对象')
+  }
+  const voices = Object.create(null)
+  for (const [label, name] of Object.entries(raw.voices)) {
+    if (!/^[\\p{L}\\p{N}_.-]{1,32}$/u.test(label) ||
+        typeof name !== 'string' || !name.endsWith('.pth') || basename(name) !== name ||
+        name === '.pth' || name.length > 100 || Object.keys(voices).length >= 24) {
+      throw new Error('rvc-voices.json 中存在非法音色名称或模型文件名')
+    }
+    voices[label] = name
+  }
+  const defaultVoice = String(raw.default || '')
+  if (defaultVoice && !Object.hasOwn(voices, defaultVoice)) {
+    throw new Error('rvc-voices.json 的 default 不在 voices 列表中')
+  }
+  return { default: defaultVoice || Object.keys(voices)[0] || '', voices }
+}
+
+function selectVoice(c, chosen = '') {
+  const v = voiceConfig()
+  if (!Object.keys(v.voices).length) {
+    if (chosen) throw new Error('尚未配置远程音色列表，请先创建 rvc-voices.json')
+    return { model: c.model, label: c.model }
+  }
+  const label = chosen || v.default
+  if (!Object.hasOwn(v.voices, label)) throw new Error('未知远程音色：' + label)
+  return { label, model: v.voices[label] }
+}
 
 function readSettings() {
   let raw
@@ -45,9 +84,10 @@ function readSettings() {
   return { base: url.origin + url.pathname.replace(/\/$/, ''), portToken, workerKey, model, f0Method, separatorProfile }
 }
 
-export async function cacheKey() {
+export async function cacheKey(voice = '') {
   const c = readSettings()
-  return `instabox-song:${c.model}:${c.f0Method}:${c.separatorProfile}:v2`
+  const selected = selectVoice(c, voice)
+  return `instabox-song:${selected.model}:${c.f0Method}:${c.separatorProfile}:v3`
 }
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -80,13 +120,14 @@ async function get(path, c, { timeoutMs = 120_000, attempts = 3 } = {}) {
   throw new Error(`连接 InstaBox RVC Worker 失败：${last?.message || 'unknown error'}`)
 }
 
-export default async function processSong({ input, outputVocals, outputInstrumental, pitch = 0, log }) {
+export default async function processSong({ input, outputVocals, outputInstrumental, pitch = 0, voice = '', log }) {
   const c = readSettings()
+  const selected = selectVoice(c, voice)
   const audio = await readFile(input)
   if (!audio.length) throw new Error('待转换的人声文件为空')
   if (audio.length > 64 * 1024 * 1024) throw new Error('人声文件超过 Worker 的 64 MiB 上传限制')
 
-  log.info(`连接 InstaBox RVC Worker；模型 ${c.model}，F0 ${c.f0Method}`)
+  log.info(`连接 InstaBox RVC Worker；音色 ${selected.label}，模型 ${selected.model}，F0 ${c.f0Method}`)
   const health = await (await get('/health', c)).json()
   if (!health.ready) throw new Error('InstaBox RVC Worker 尚未就绪')
   if (!health.separator_ready) throw new Error('InstaBox 尚未完成 audio-separator 模型安装或 Worker 升级')
@@ -94,13 +135,13 @@ export default async function processSong({ input, outputVocals, outputInstrumen
     throw new Error(`InstaBox 当前分离模型为 ${health.separator_profile || '未知'}，但配置希望使用 ${c.separatorProfile}；请先同步 Worker 与 rvc-worker.env，避免误用缓存或混合不同模型`)
   }
   const available = await (await get('/v1/models', c)).json()
-  if (!Array.isArray(available.models) || !available.models.includes(c.model)) {
-    throw new Error(`InstaBox 上没有模型 ${c.model}；当前模型：${(available.models || []).join('、') || '无'}`)
+  if (!Array.isArray(available.models) || !available.models.includes(selected.model)) {
+    throw new Error(`InstaBox 上没有模型 ${selected.model}；当前模型：${(available.models || []).join('、') || '无'}`)
   }
 
   const form = new FormData()
   form.append('file', new Blob([audio]), basename(input))
-  form.append('model', c.model)
+  form.append('model', selected.model)
   form.append('pitch', String(Math.max(-24, Math.min(24, Math.round(Number(pitch) || 0)))))
   form.append('f0_method', c.f0Method)
 
