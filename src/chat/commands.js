@@ -44,7 +44,7 @@ const COMMANDS = {
   chatty: '这个群里话多一点，更爱插话',
   normal: '这个群恢复默认的插话频率',
   model: '看或换她用的模型：/model 看列表，/model 2 或 /model 名字 换，/model 默认 跟随 DSH',
-  sing: '让她翻唱一首：/sing 小幸运 田馥甄；后面加 +12 / -3 之类可以变调（原唱是男声一般 +12）',
+  sing: '翻唱：/sing 小幸运 田馥甄 @可可；可加 +12 / -3 变调；@音色可省略（使用默认）',
   status: '看她现在的状态',
   mood: '看她现在的心情',
   diary: '马上写一篇空间日记',
@@ -172,11 +172,20 @@ export async function runCommand(cmd, msg, deps) {
     }
     case 'sing': {
       if (!deps.song) return '翻唱功能不可用'
-      // 末尾的 +12 / -3 是变调
-      const m = cmd.arg.match(/^(.*?)\s+([+-]\d{1,2})$/)
-      const name = (m ? m[1] : cmd.arg).trim()
-      if (!name) return '唱哪首？比如 /sing 小幸运 田馥甄'
-      return deps.song.request({ song: name, pitch: m ? Number(m[2]) : undefined, chatId: msg.chatId }).message
+      // @音色可以位于末尾，也可以放在变调参数之前。
+      let name = cmd.arg.trim()
+      let selectedVoice = ''
+      const parseVoice = () => {
+        const match = name.match(/^(.*?)\s+@([^\s@]+)$/)
+        if (match) { name = match[1].trim(); selectedVoice = match[2]; return true }
+        return false
+      }
+      parseVoice()
+      const pitchMatch = name.match(/^(.*?)\s+([+-]\d{1,2})$/)
+      if (pitchMatch) { name = pitchMatch[1].trim() }
+      if (!selectedVoice) parseVoice()
+      if (!name) return '唱哪首？比如 /sing 小幸运 田馥甄 @可可'
+      return deps.song.request({ song: name, pitch: pitchMatch ? Number(pitchMatch[2]) : undefined, voice: selectedVoice || undefined, chatId: msg.chatId }).message
     }
     case 'mood':
       return mood ? `现在${mood.label()}` : '心情模块关着'
