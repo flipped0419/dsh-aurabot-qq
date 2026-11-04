@@ -1751,7 +1751,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
         inp.onchange = () => inp.files && upload(inp.files)
         inp.click()
       }
-      if (s.localSong || s.localSongProcess) return h(Card, { title: '远程音色模型', desc: '换声由外部接口接管，.pth 模型保存在 InstaBox Worker，无需上传腾讯云。模型通过 local/rvc-worker.env 的 RVC_MODEL 设置。' },
+      if (s.localSong || s.localSongProcess) return h(Card, { title: '远程音色模型', desc: '换声由外部接口接管，.pth 模型保存在 InstaBox Worker，无需上传腾讯云。可通过 local/rvc-voices.json 配置多个模型并在「声音」中选择，未配置时仍使用 local/rvc-worker.env 的 RVC_MODEL。' },
         h('div', { className: 'ab-note' }, '人声分离和 RVC 推理可以交给 InstaBox；本机只需 FFmpeg。'))
       return h(Card, { title: '音色模型', desc: '插件不自带音色。把你有权使用的 RVC 模型导进来：.pth（可以带 .index），或者装着它们的 zip。只存在本机。自己训练的是 so-vits-svc 之类别的模型、或者想用自己的推理参数？去「本地接口」页接「翻唱换声」。' },
         h('div', {
@@ -1872,7 +1872,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
         ),
         h(VoiceImport, { s, toast, onChange: load }),
         h(Card, { title: '声音', desc: '用哪个音色唱、默认变调和语音条的长度。' },
-          h(Row, { label: '音色' }, remoteMode ? h('span', { className: 'ab-muted' }, '由 InstaBox RVC_MODEL 配置') : voices.length ? h(Select, { value: draft.song.voice || (voices[0] && voices[0].value), options: voices, onChange: (v) => setDraft(setPath(draft, 'song.voice', v)) }) : h('span', { className: 'ab-muted' }, '还没有模型')),
+          h(Row, { label: '音色' }, ((!remoteMode || localSongProcess) && voices.length) ? h(Select, { value: voices.some((v) => v.value === draft.song.voice) ? draft.song.voice : voices[0]?.value, options: voices, onChange: (v) => setDraft(setPath(draft, 'song.voice', v)) }) : remoteMode ? h('span', { className: 'ab-muted' }, '由 InstaBox RVC_MODEL 配置') : h('span', { className: 'ab-muted' }, '还没有模型')),
           h(Row, { label: '默认变调', hint: '她自己点歌时会按原唱男声 / 女声定，这里是你在面板里试唱时的默认值' }, f.range('song.pitch', -12, 12, 1, (v) => (v > 0 ? '+' : '') + v + ' 半音')),
           h(Row, { label: '语音条最长', hint: '歌比这个长就截一段' }, f.range('song.maxVoiceSec', 30, localSongProcess ? 180 : 300, 10, (v) => v + ' 秒')),
           h(Row, { label: '截哪一段' }, f.choices('song.clipStart', [{ value: 'auto', label: '副歌附近', desc: '从全曲大约 30% 的地方开始' }, { value: 'head', label: '从头开始' }])),
