@@ -101,6 +101,12 @@ test('/sing：歌名和变调', async () => {
   await commands.runCommand(commands.parseCommand('/唱 晴天'), msg, deps)
   assert.deepEqual(calls[1], { song: '晴天', pitch: undefined, chatId: 'private:1' })
   assert.match(await commands.runCommand(commands.parseCommand('/sing'), msg, deps), /唱哪首/)
+  await commands.runCommand(commands.parseCommand('/sing 东西 蓝心羽 @可可'), msg, deps)
+  assert.deepEqual(calls.at(-1), { song: '东西 蓝心羽', pitch: undefined, voice: '可可', chatId: 'private:1' })
+  await commands.runCommand(commands.parseCommand('/sing 东西 蓝心羽 @草莓 +12'), msg, deps)
+  assert.deepEqual(calls.at(-1), { song: '东西 蓝心羽', pitch: 12, voice: '草莓', chatId: 'private:1' })
+  await commands.runCommand(commands.parseCommand('/sing 东西 蓝心羽 -3 @EEE'), msg, deps)
+  assert.deepEqual(calls.at(-1), { song: '东西 蓝心羽', pitch: -3, voice: 'EEE', chatId: 'private:1' })
 })
 
 // 测试用的小 zip 打包器：deflate 压缩；name 可以传 Buffer（模拟 Windows 上 GBK 编码的中文文件名）
