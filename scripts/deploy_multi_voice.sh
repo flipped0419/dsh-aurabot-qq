@@ -11,6 +11,10 @@ LINK=/opt/aurabot/home/.dsh/profiles/web/node_modules/dsh-aurabot-qq
 LOCAL=/opt/aurabot/data/local
 NODE=/opt/aurabot/node/bin/node
 SVC=aurabot-dsh.service
+PROFILE=/opt/aurabot/home/.dsh/profiles/web
+DSH=/opt/aurabot/runtime/node_modules/.bin/dsh
+DSH_HOME=/opt/aurabot/home/.dsh
+NODE_PATH=/opt/aurabot/node/bin:/opt/aurabot/runtime/node_modules/.bin:/usr/local/bin:/usr/bin:/bin
 PIN=2e06cd6625e69bcf80ed5e47212a348be0988a31
 REF=refs/heads/upgrade/aurabot-1.1.24
 BACKUP_DIR=''
@@ -34,11 +38,28 @@ rollback() {
         rm -f "$LOCAL/rvc-voices.json"
       fi
     fi
-    local temp="${LINK}.rollback.$$"
-    rm -f "$temp"
-    ln -s "$OLD" "$temp"
-    chown -h aurabot:aurabot "$temp"
-    mv -Tf "$temp" "$LINK"
+    # Repair the package manifest + pnpm lock + node_modules link together.
+    if sudo -u aurabot -H env DSH_HOME="$DSH_HOME" PATH="$NODE_PATH" \
+         "$DSH" plugin --profile web add "link:$OLD" --prefer-offline --ignore-scripts; then
+      echo 'ROLLBACK: DSH profile dependency restored to the verified 1.1.24-rvc release' >&2
+    else
+      echo 'WARNING: DSH plugin rollback failed; restoring saved profile manifests and the known-good link' >&2
+      if [[ -f "$BACKUP_DIR/profile-package.json" ]]; then
+        install -o aurabot -g aurabot -m 600 "$BACKUP_DIR/profile-package.json" "$PROFILE/package.json"
+      fi
+      if [[ -f "$BACKUP_DIR/profile-pnpm-lock.yaml" ]]; then
+        install -o aurabot -g aurabot -m 600 "$BACKUP_DIR/profile-pnpm-lock.yaml" "$PROFILE/pnpm-lock.yaml"
+      fi
+      if [[ -f "$BACKUP_DIR/profile-cordis.patch.yml" ]]; then
+        install -o aurabot -g aurabot -m 600 "$BACKUP_DIR/profile-cordis.patch.yml" "$PROFILE/cordis.patch.yml"
+      fi
+      local temp="${LINK}.rollback.$"
+      rm -f "$temp"
+      ln -s "$OLD" "$temp"
+      chown -h aurabot:aurabot "$temp"
+      mv -Tf "$temp" "$LINK"
+      echo 'WARNING: last-resort link restoration may be overwritten by future plugin updates' >&2
+    fi
     systemctl restart "$SVC"
     echo "ROLLBACK: link=$(readlink -f "$LINK") service=$(systemctl is-active "$SVC")" >&2
   fi
@@ -65,7 +86,9 @@ fi
   fail 'missing stable 1.1.24-rvc release/worktree or existing local song adapter'
 [[ "$("$NODE" -p "require('$OLD/package.json').version")" == "1.1.24" ]] ||
   fail 'stable rollback release package version is not 1.1.24'
-[[ -x "$NODE" ]] || fail 'Node executable missing'
+[[ -x "$NODE" && -x "$DSH" && -d "$PROFILE" ]] || fail 'Node/DSH executable or profile directory missing'
+sudo -u aurabot -H env PATH="$NODE_PATH" /bin/sh -c 'command -v pnpm >/dev/null' ||
+  fail 'pnpm not found on the DSH runtime PATH; no changes made'
 systemctl is-active --quiet "$SVC" || fail 'current DSH service not active'
 
 echo 'PRECHECK: verifying InstaBox model registry over existing authenticated HTTPS (no keys printed)'
@@ -99,21 +122,21 @@ console.log('PASS: all six Worker models accessible through private HTTPS')
 NODE
 
 echo 'PREPARE: fetching verified Aurabot source as an isolated worktree'
-if ! git -c safe.directory="$OLD" -C "$OLD" fetch --quiet --no-tags origin "$REF"; then
+if ! sudo -u aurabot -H git -C "$OLD" fetch --quiet --no-tags origin "$REF"; then
   echo 'Direct GitHub fetch failed; retrying through existing 127.0.0.1:7890 proxy'
-  HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 \
-    git -c safe.directory="$OLD" -C "$OLD" fetch --quiet --no-tags origin "$REF"
+  sudo -u aurabot -H env HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 \
+    git -C "$OLD" fetch --quiet --no-tags origin "$REF"
 fi
-git -c safe.directory="$OLD" -C "$OLD" cat-file -e "${PIN}^{commit}" ||
+sudo -u aurabot -H git -C "$OLD" cat-file -e "${PIN}^{commit}" ||
   fail "expected commit $PIN not fetched"
-git -c safe.directory="$OLD" -C "$OLD" merge-base --is-ancestor "$PIN" FETCH_HEAD ||
+sudo -u aurabot -H git -C "$OLD" merge-base --is-ancestor "$PIN" FETCH_HEAD ||
   fail 'pinned revision is not reachable from the current upgrade branch'
 if [[ ! -e "$NEW" ]]; then
-  git -c safe.directory="$OLD" -C "$OLD" worktree add --quiet --detach "$NEW" "$PIN"
+  sudo -u aurabot -H git -C "$OLD" worktree add --quiet --detach "$NEW" "$PIN"
 else
   [[ -f "$NEW/src/local/templates/rvc-voices.json.example" ]] ||
     fail "Existing destination is not the expected release: $NEW"
-  [[ "$(git -c safe.directory="$NEW" -C "$NEW" rev-parse HEAD)" == "$PIN" ]] ||
+  [[ "$(sudo -u aurabot -H git -C "$NEW" rev-parse HEAD)" == "$PIN" ]] ||
     fail "Existing destination points to a different revision: $NEW"
 fi
 
@@ -136,6 +159,10 @@ cp -a "$LOCAL/song-process.mjs" "$BACKUP_DIR/song-process.mjs"
 if [[ -f "$LOCAL/rvc-voices.json" ]]; then
   cp -a "$LOCAL/rvc-voices.json" "$BACKUP_DIR/rvc-voices.json"
 fi
+for entry in package.json pnpm-lock.yaml cordis.patch.yml; do
+  [[ -f "$PROFILE/$entry" ]] || fail "Profile missing $entry"
+  cp -a "$PROFILE/$entry" "$BACKUP_DIR/profile-$entry"
+done
 ROLLBACK_ARMED=1
 
 echo 'INSTALL: new local adapter + voice mapping (secrets untouched)'
@@ -144,11 +171,29 @@ install -o aurabot -g aurabot -m 600 "$NEW/src/local/templates/rvc-voices.json.e
 mv -f "$LOCAL/.song-process.mjs.new.$$" "$LOCAL/song-process.mjs"
 mv -f "$LOCAL/.rvc-voices.json.new.$$" "$LOCAL/rvc-voices.json"
 
-echo "SWITCH: atomically update DSH plugin link (previous actual target: $CURRENT)"
-TEMP="${LINK}.new.$$"
-ln -s "$NEW" "$TEMP"
-chown -h aurabot:aurabot "$TEMP"
-mv -Tf "$TEMP" "$LINK"
+echo "SWITCH: re-register via native DSH plugin manager (previous actual target: $CURRENT)"
+sudo -u aurabot -H env DSH_HOME="$DSH_HOME" PATH="$NODE_PATH" \
+  "$DSH" plugin --profile web add "link:$NEW" --prefer-offline --ignore-scripts
+
+# Match all three state layers: dependency manifest, pnpm lock, and materialized symlink.
+[[ "$("$NODE" -p "require('$PROFILE/package.json').dependencies['dsh-aurabot-qq']")" == "link:$NEW" ]] ||
+  fail 'DSH profile package.json still points to a different Aurabot version'
+LOCK_VERSION=$(awk '
+  /^      dsh-aurabot-qq:$/ { inside=1; next }
+  inside && /^      [^ ]/ { exit }
+  inside && /^[[:space:]]+version: / { sub(/^[[:space:]]+version:[[:space:]]+/, ""); print; exit }
+' "$PROFILE/pnpm-lock.yaml")
+[[ "$LOCK_VERSION" == link:* ]] || fail "missing Aurabot dependency version in pnpm-lock.yaml"
+LOCK_REL="${LOCK_VERSION#link:}"
+if [[ "$LOCK_REL" == /* ]]; then
+  LOCK_REAL="$(realpath -m "$LOCK_REL")"
+else
+  LOCK_REAL="$(realpath -m "$PROFILE/$LOCK_REL")"
+fi
+[[ "$LOCK_REAL" == "$NEW" ]] ||
+  fail "pnpm lock target differs from Aurabot release: $LOCK_REAL"
+[[ "$(readlink -f "$LINK")" == "$NEW" ]] || fail 'pnpm did not update the actual plugin link'
+echo 'PASS: package.json, pnpm-lock.yaml, node_modules now agree on 1.1.24-voices'
 systemctl restart "$SVC"
 
 READY=0
@@ -165,5 +210,5 @@ done
   echo 'NOTE: existing credential file permissions differ from recommended aurabot:600; file was NOT changed'
 ROLLBACK_ARMED=0
 trap - ERR
-echo "PASS: 1.1.24-voices active; HTTP $STATUS; backup at $BACKUP_DIR; original link was $CURRENT"
+echo "PASS: managed Aurabot 1.1.24-voices active; HTTP $STATUS; backup at $BACKUP_DIR; original link was $CURRENT"
 echo 'NEXT: open Aurabot -> 翻唱; choose 可可; save; /sing 东西 蓝心羽 @草莓'
