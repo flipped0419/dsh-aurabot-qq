@@ -36,7 +36,8 @@ function fixture(sourceFile) {
     'RVC_PORT_TOKEN=ibp_test_do_not_use',
     'RVC_WORKER_KEY=test_not_production',
     'RVC_MODEL=Fp231.pth',
-    'RVC_F0_METHOD=pm',
+    'RVC_F0_METHOD=rmvpe',
+    'RVC_SEPARATOR_PROFILE=mel-vocals',
   ].join('\n'))
   const input = join(folder, 'input.wav')
   writeFileSync(input, riffWav())
@@ -51,13 +52,14 @@ test('song-process.mjs uploads original audio and downloads both WAV tracks', as
   const wav = riffWav()
   globalThis.fetch = async (url, opts = {}) => {
     const path = new URL(url).pathname
-    if (path === '/health') return response({ ready: true, separator_ready: true })
+    if (path === '/health') return response({ ready: true, separator_ready: true, separator_profile: 'mel-vocals' })
     if (path === '/v1/models') return response({ models: ['Fp231.pth'] })
     if (path === '/v1/song-jobs') {
       postCount++
       assert.equal(opts.method, 'POST')
       assert.equal(opts.body.get('model'), 'Fp231.pth')
       assert.equal(opts.body.get('pitch'), '4')
+      assert.equal(opts.body.get('f0_method'), 'rmvpe')
       return response({ job_id: jid, state: 'queued' }, 202)
     }
     if (path === '/v1/song-jobs/' + jid) return response({ state: 'done' })
@@ -70,6 +72,7 @@ test('song-process.mjs uploads original audio and downloads both WAV tracks', as
   try {
     const convert = await import(f.file)
     assert.match(await convert.cacheKey(), /Fp231\.pth/)
+    assert.match(await convert.cacheKey(), /rmvpe:mel-vocals/)
     const vocals = join(f.folder, 'voice.wav'), instrumental = join(f.folder, 'inst.wav')
     const out = await convert.default({ input: f.input, outputVocals: vocals, outputInstrumental: instrumental, pitch: 4, log: noopLog })
     assert.deepEqual(out, { vocals, instrumental })
@@ -98,6 +101,28 @@ test('song-process.mjs rejects missing separator before job POST', async () => {
     await assert.rejects(convert.default({
       input: f.input, outputVocals: join(f.folder, 'a.wav'), outputInstrumental: join(f.folder, 'b.wav'), log: noopLog,
     }), /audio-separator/)
+    assert.equal(posts, 0)
+  } finally {
+    globalThis.fetch = orig
+    rmSync(f.folder, { recursive: true, force: true })
+  }
+})
+
+test('song-process.mjs prevents silent server/client separator profile mismatch before upload', async () => {
+  const f = fixture('song-process.mjs')
+  const orig = globalThis.fetch
+  let posts = 0
+  globalThis.fetch = async (url, opts = {}) => {
+    if (opts.method === 'POST') posts++
+    const path = new URL(url).pathname
+    if (path === '/health') return response({ ready: true, separator_ready: true, separator_profile: 'mdx-hq5' })
+    throw new Error('unexpected route ' + path)
+  }
+  try {
+    const convert = await import(f.file)
+    await assert.rejects(convert.default({
+      input: f.input, outputVocals: join(f.folder, 'a.wav'), outputInstrumental: join(f.folder, 'b.wav'), log: noopLog,
+    }), /当前分离模型/)
     assert.equal(posts, 0)
   } finally {
     globalThis.fetch = orig
