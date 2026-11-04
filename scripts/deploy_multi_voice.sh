@@ -48,9 +48,23 @@ trap rollback ERR
 
 [[ "$EUID" == 0 ]] || fail 'run as root'
 id aurabot >/dev/null 2>&1 || fail 'missing aurabot service account'
-[[ "$(readlink -f "$LINK")" == "$OLD" ]] || fail "production link is not expected $OLD; refuse to overwrite a different deployment"
-[[ -f "$OLD/src/host.js" && -f "$OLD/.git" && -f "$LOCAL/song-process.mjs" && -s "$LOCAL/rvc-worker.env" ]] ||
-  fail 'missing current release/worktree or existing local song adapter'
+CURRENT="$(readlink -f "$LINK")"
+if [[ "$CURRENT" != "$OLD" ]]; then
+  # Accept only the exact known old 1.0.4 checkout seen in production.
+  # Do not build from it or use it as the rollback baseline.
+  [[ "$CURRENT" == "/opt/aurabot/source" ]] ||
+    fail "unexpected production link $CURRENT; refusing to switch an unknown release"
+  [[ "$(git -c safe.directory="$CURRENT" -C "$CURRENT" rev-parse --short=7 HEAD)" == "e5a9a1f" ]] ||
+    fail "unexpected /opt/aurabot/source revision; investigate before deployment"
+  [[ -f "$CURRENT/package.json" ]] || fail 'missing legacy source package.json'
+  [[ "$("$NODE" -p "require('$CURRENT/package.json').version")" == "1.0.4" ]] ||
+    fail 'unexpected legacy source package version'
+  echo 'NOTICE: symlink points to old AuraBot 1.0.4; use verified 1.1.24-rvc as rollback baseline'
+fi
+[[ -f "$OLD/src/host.js" && -f "$OLD/.git" && -f "$OLD/package.json" && -f "$LOCAL/song-process.mjs" && -s "$LOCAL/rvc-worker.env" ]] ||
+  fail 'missing stable 1.1.24-rvc release/worktree or existing local song adapter'
+[[ "$("$NODE" -p "require('$OLD/package.json').version")" == "1.1.24" ]] ||
+  fail 'stable rollback release package version is not 1.1.24'
 [[ -x "$NODE" ]] || fail 'Node executable missing'
 systemctl is-active --quiet "$SVC" || fail 'current DSH service not active'
 
@@ -130,7 +144,7 @@ install -o aurabot -g aurabot -m 600 "$NEW/src/local/templates/rvc-voices.json.e
 mv -f "$LOCAL/.song-process.mjs.new.$$" "$LOCAL/song-process.mjs"
 mv -f "$LOCAL/.rvc-voices.json.new.$$" "$LOCAL/rvc-voices.json"
 
-echo 'SWITCH: atomically update DSH plugin link'
+echo "SWITCH: atomically update DSH plugin link (previous actual target: $CURRENT)"
 TEMP="${LINK}.new.$$"
 ln -s "$NEW" "$TEMP"
 chown -h aurabot:aurabot "$TEMP"
@@ -151,5 +165,5 @@ done
   echo 'NOTE: existing credential file permissions differ from recommended aurabot:600; file was NOT changed'
 ROLLBACK_ARMED=0
 trap - ERR
-echo "PASS: 1.1.24-voices active; HTTP $STATUS; backup at $BACKUP_DIR"
+echo "PASS: 1.1.24-voices active; HTTP $STATUS; backup at $BACKUP_DIR; original link was $CURRENT"
 echo 'NEXT: open Aurabot -> 翻唱; choose 可可; save; /sing 东西 蓝心羽 @草莓'
