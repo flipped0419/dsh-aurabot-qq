@@ -62,6 +62,7 @@
 - `RVC_PORT_TOKEN`：InstaBox Private Port 的 Token。
 - `RVC_WORKER_KEY`：Worker 自己的 API Key。
 - `RVC_MODEL`：InstaBox `/v1/models` 返回的模型文件名，例如 `Fp231.pth`。
-- `RVC_F0_METHOD`：`pm` 或 `rmvpe`，默认 `pm`。
+- `RVC_F0_METHOD`：`pm` 或 `rmvpe`；整段翻唱推荐并默认使用 `rmvpe`（已通过歌曲试听对比）。
+- `RVC_SEPARATOR_PROFILE`：InstaBox Worker 当前分离模式，正式方案为 `mel-vocals`。须与 `/health.separator_profile` 一致，否则脚本拒绝提交，避免混用缓存。
 
-示例文件与真实密钥分离；真实配置只保存在 Aurabot 数据目录 `local/rvc-worker.env`，权限设为 `600`。脚本先检查 Worker 和模型，再提交一次 POST（不盲目重试，避免重复任务），随后轮询并下载 WAV。远程模型名和 F0 算法参与翻唱缓存键。使用 `song-convert.mjs` 时腾讯云仍负责下载、人声分离、FFmpeg 混音和 QQ 发送；使用新的 `song-process.mjs` 时 InstaBox 负责分离＋RVC，腾讯云只负责下载、截取、FFmpeg 混音和 QQ 发送。InstaBox 的实际 CPU 性能和模型资源占用仍需实测。
+示例文件与真实密钥分离；真实配置只保存在 Aurabot 数据目录 `local/rvc-worker.env`，权限设为 `600`。脚本先检查 Worker 和模型，再提交一次 POST（不盲目重试，避免重复任务），随后轮询并下载 WAV。远程模型名和 F0 算法参与翻唱缓存键。使用 `song-convert.mjs` 时腾讯云仍负责下载、人声分离、FFmpeg 混音和 QQ 发送；使用新的 `song-process.mjs` 时 InstaBox 负责分离＋RVC，腾讯云只负责下载、截取、FFmpeg 混音和 QQ 发送。InstaBox 的 4C8G 已完成短歌曲的模型对照测试：15 秒歌曲 MelBand 分离约 68.5 秒、BS-RoFormer 约 276 秒；用户试听认为 MelBand + RMVPE 与 BS-RoFormer + RMVPE 的最终混音效果接近、均无明显电音。CPU 处理长歌曲仍可能耗时数分钟，推荐先在主人私聊使用短片段验证。完整 QQ 翻唱尚未在腾讯云生产链路验收。
